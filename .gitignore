@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+data/
+node_modules/
+dist/
+coverage/
+
+*.log
+*.db
+*.sqlite
+artifacts/
+evaluation_results*.json
+.mlflow/
+.claude/
+.vscode/
+.idea/
+.DS_Store
+# TypeScript incremental build metadata
+*.tsbuildinfo
