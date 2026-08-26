@@ -1,9 +1,0 @@
-{
-  "name": "repomind-x-ui",
-  "private": true,
-  "type": "module",
-  "version": "0.1.0",
-  "scripts": {"dev": "vite --host 0.0.0.0", "build": "tsc -b && vite build"},
-  "dependencies": {"@vitejs/plugin-react": "latest", "react": "latest", "react-dom": "latest", "reactflow": "latest"},
-  "devDependencies": {"@types/node": "latest", "@types/react": "latest", "@types/react-dom": "latest", "autoprefixer": "latest", "postcss": "latest", "tailwindcss": "3.4.17", "typescript": "latest", "vite": "latest"}
-}
