@@ -29,12 +29,14 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   }
   return response.json() as Promise<T>;
 }
+const versionKey = (repo: Repository) => `${repo.id}@${repo.commit_sha}`;
 const post = (body: unknown): RequestInit => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
 function App() {
   const [repos, setRepos] = useState<Repository[]>([]);
   const [active, setActive] = useState<Repository | null>(null);
   const [source, setSource] = useState("../examples/sample_js_repo");
+  const [commit, setCommit] = useState("");
   const [query, setQuery] = useState(EXAMPLES[0]);
   const [mode, setMode] = useState("hybrid");
   const [compare, setCompare] = useState(false);
@@ -55,8 +57,8 @@ function App() {
 
   async function ingest(event: React.FormEvent) {
     event.preventDefault();
-    const repo = await run("Indexing repository (first run downloads the CPU embedding model)...", () => api<Repository>("/api/repositories/ingest", post({ source })));
-    if (repo) { setActive(repo); setRepos((items) => [...items.filter((item) => item.id !== repo.id), repo]); setPrimary(null); setBaseline(null); }
+    const repo = await run("Indexing repository (first run downloads the CPU embedding model)...", () => api<Repository>("/api/repositories/ingest", post({ source, commit: commit.trim() || null })));
+    if (repo) { setActive(repo); setRepos((items) => [...items.filter((item) => versionKey(item) !== versionKey(repo)), repo]); setPrimary(null); setBaseline(null); }
   }
 
   async function search(event?: React.FormEvent) {
@@ -94,7 +96,7 @@ function App() {
       <p className="tagline">Natural-language code retrieval with exact, verified source locations.</p>
       <div className="repo-list"><small>INDEXED REPOSITORIES</small>
         {repos.length === 0 && <p className="muted">None yet.</p>}
-        {repos.map((repo) => <button key={repo.id} onClick={() => { setActive(repo); setPrimary(null); setBaseline(null); }} className={active?.id === repo.id ? "repo active" : "repo"}>
+        {repos.map((repo) => <button key={versionKey(repo)} onClick={() => { setActive(repo); setPrimary(null); setBaseline(null); }} className={active && versionKey(active) === versionKey(repo) ? "repo active" : "repo"}>
           {repo.name}<em>{Object.keys(repo.languages).join(", ") || "no sources"} · {repo.units} units · {repo.commit_sha.slice(0, 8)}</em></button>)}
       </div>
     </aside>
@@ -102,7 +104,7 @@ function App() {
       <header>
         <div><p className="eyebrow">THEME 1 · AGENTIC CODE INTELLIGENCE</p><h1>{active ? active.name : "Index a repository"}</h1>
           {active && <p className="muted mono">repo {active.id} · commit {active.commit_sha} · {active.architecture}</p>}</div>
-        <form onSubmit={ingest} className="ingest"><input value={source} onChange={(e) => setSource(e.target.value)} aria-label="Repository path or Git URL" placeholder="Local path or https Git URL" /><button disabled={!!busy}>Index</button></form>
+        <form onSubmit={ingest} className="ingest"><input value={source} onChange={(e) => setSource(e.target.value)} aria-label="Repository path or Git URL" placeholder="Local path or https Git URL" /><input className="commit" value={commit} onChange={(e) => setCommit(e.target.value)} aria-label="Commit or ref (optional)" placeholder="commit / ref (optional)" /><button disabled={!!busy}>Index</button></form>
       </header>
       {busy && <div className="status">{busy}</div>}
       {error && <div className="status error" role="alert">{error}</div>}

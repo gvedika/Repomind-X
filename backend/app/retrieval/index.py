@@ -23,6 +23,7 @@ class CodeIndex:
     texts: list[str] = field(default_factory=list)
     embeddings: np.ndarray | None = None
     embedder_name: str | None = None
+    indexed_at: str = ""
 
     def __post_init__(self):
         self.all_units = [u for u in self.units if u.repository_id == self.repository_id and u.commit_sha == self.commit_sha]
@@ -45,7 +46,7 @@ class CodeIndex:
         summary = json.loads((meta / "summary.json").read_text(encoding="utf-8"))
         units = [CodeUnit.model_validate_json(line) for line in (meta / "units.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
         coverage = ParseCoverage.model_validate(summary["parse_coverage"]) if summary.get("parse_coverage") else None
-        return cls(summary["id"], summary.get("commit_sha", "worktree"), root, units, coverage)
+        return cls(summary["id"], summary.get("commit_sha", "worktree"), root, units, coverage, indexed_at=summary.get("indexed_at", ""))
 
     def _embedding_path(self) -> Path:
         return self.root / METADATA_DIR / "embeddings.npz"

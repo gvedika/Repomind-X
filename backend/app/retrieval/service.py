@@ -39,7 +39,8 @@ class IndexRegistry:
             try: data = json.loads(summary.read_text(encoding="utf-8"))
             except (OSError, ValueError): continue
             if data.get("id") == repository_id and (summary.parent / "units.jsonl").exists():
-                found.append(CodeIndex.load(summary.parent.parent))
+                try: found.append(CodeIndex.load(summary.parent.parent))
+                except (OSError, ValueError, KeyError): continue
         return found
 
     def get(self, repository_id: str, commit_sha: str | None = None) -> CodeIndex:
@@ -52,7 +53,10 @@ class IndexRegistry:
         if not matches:
             detail = f" at commit {commit_sha}" if commit_sha else ""
             raise IndexNotFound(f"Repository {repository_id}{detail} is not indexed. Ingest it first.")
-        return matches[-1]
+        return max(matches, key=lambda index: index.indexed_at)
+
+    def commits(self, repository_id: str) -> list[str]:
+        with self._lock: return [k[1] for k in self._items if k[0] == repository_id]
 
 
 registry = IndexRegistry()

@@ -131,7 +131,8 @@ class Finding(BaseModel):
 
 class IngestRequest(BaseModel):
     source: str = Field(description="Local repository path or public Git URL")
-    branch: str | None = None
+    branch: str | None = Field(None, pattern=r"^[A-Za-z0-9][\w./-]{0,199}$")
+    commit: str | None = Field(None, pattern=r"^[A-Za-z0-9][\w./~^-]{0,199}$", description="Commit SHA or ref to index; defaults to the working tree / HEAD")
 
 
 class RepositorySummary(BaseModel):

@@ -7,7 +7,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from app.models.schemas import IngestRequest, QueryRequest, QueryResponse, RepositorySummary, SearchRequest, SearchResponse, SourceStatus
 from app.retrieval.service import IndexNotFound, registry, search as retrieval_search
 from app.retrieval.source import verify_source
-from app.services.ingestion import ingest
+from app.services.ingestion import delete_version, ingest
 from app.services.orchestrator import answer
 from app.services.store import store
 from contextlib import asynccontextmanager
@@ -70,6 +70,20 @@ def list_repositories() -> list[RepositorySummary]: return store.all()
 
 @app.get("/api/repositories/{repository_id}", response_model=RepositorySummary)
 def get_repository(repository_id: str) -> RepositorySummary: return state_or_404(repository_id).summary
+
+
+@app.get("/api/repositories/{repository_id}/commits")
+def repository_commits(repository_id: str) -> list[dict]:
+    """Every indexed version of a repository; search with commit_sha to select one."""
+    versions = [s for s in store.all() if s.id == repository_id]
+    if not versions: raise HTTPException(404, "Repository is not indexed. Ingest it first.")
+    return [{"commit_sha": s.commit_sha, "indexed_at": s.indexed_at, "units": s.units, "files": s.files} for s in versions]
+
+
+@app.delete("/api/repositories/{repository_id}/commits/{commit_sha}")
+def delete_commit(repository_id: str, commit_sha: str) -> dict:
+    if not delete_version(repository_id, commit_sha): raise HTTPException(404, "That repository version is not indexed.")
+    return {"deleted": True, "repository_id": repository_id, "commit_sha": commit_sha}
 
 
 @app.get("/api/repositories/{repository_id}/graph")

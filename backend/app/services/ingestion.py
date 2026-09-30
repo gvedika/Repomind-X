@@ -30,27 +30,74 @@ logger = logging.getLogger(__name__)
 ANALYZERS = (JavaScriptAnalyzer(), PythonAnalyzer())
 
 
-def _commit_sha(path: Path) -> str:
-    """HEAD of the source checkout; 'worktree' when the source is not a Git repository."""
-    try: return Repo(path, search_parent_directories=True).head.commit.hexsha
+COPY_IGNORE = shutil.ignore_patterns(".git","__pycache__","node_modules","dist","build",".venv","venv")
+
+
+def _git_repo(path: Path):
+    try: return Repo(path, search_parent_directories=True)
+    except Exception: return None
+
+
+def _worktree_commit(repo, relative: str) -> str:
+    """HEAD SHA, suffixed with -dirty when the working tree differs from HEAD so it is never mislabeled as a commit."""
+    if repo is None: return "worktree"
+    try: head = repo.head.commit.hexsha
     except Exception: return "worktree"
+    try: dirty = repo.is_dirty(untracked_files=True, path=relative or None)
+    except Exception: dirty = False
+    return f"{head}-dirty" if dirty else head
 
 
-def _materialize(request: IngestRequest) -> tuple[Path, str]:
+def _export_commit(repo, sha: str, relative: str, target: Path) -> None:
+    """Write the exact tree of `sha` (optionally a sub-directory) into target via git archive; nothing is executed."""
+    import io, tarfile
+    args = [sha] + (["--", relative] if relative else [])
+    data = repo.git.archive(*args, format="tar", stdout_as_string=False)
+    target.mkdir(parents=True)
+    with tarfile.open(fileobj=io.BytesIO(data)) as archive:
+        members = []
+        for member in archive.getmembers():
+            name = member.name[len(relative) + 1:] if relative and member.name.startswith(relative + "/") else (None if relative else member.name)
+            if not name or not (member.isfile() or member.isdir()): continue
+            member.name = name; members.append(member)
+        archive.extractall(target, members=members, filter="data")
+
+
+def _replace_dir(target: Path) -> None:
+    if target.exists(): shutil.rmtree(target)
+
+
+def _materialize(request: IngestRequest) -> tuple[Path, str, str]:
+    """Return (snapshot root, commit sha, repository id). Each commit gets its own snapshot directory so versions never mix."""
     source = validate_repository_source(request.source)
-    local=Path(source).expanduser()
+    settings.repository_root.mkdir(parents=True, exist_ok=True)
+    local = Path(source).expanduser()
     if local.exists() and local.is_dir():
-        settings.repository_root.mkdir(parents=True,exist_ok=True)
-        target=settings.repository_root/f"local-{hashlib.sha1(str(local.resolve()).encode()).hexdigest()[:12]}"
-        if target.exists(): shutil.rmtree(target)
-        shutil.copytree(local,target,ignore=shutil.ignore_patterns(".git","__pycache__","node_modules","dist","build",".venv","venv"))
-        return target.resolve(), _commit_sha(local)
+        local = local.resolve()
+        repository_id = hashlib.sha1(f"local:{local}".encode()).hexdigest()[:12]
+        repo = _git_repo(local)
+        relative = local.relative_to(Path(repo.working_tree_dir).resolve()).as_posix() if repo is not None else ""
+        relative = "" if relative == "." else relative
+        if request.commit:
+            if repo is None: raise ValueError("commit was requested but the source is not inside a Git repository")
+            sha = repo.commit(request.commit).hexsha
+            target = settings.repository_root / f"local-{repository_id}-{sha[:12]}"
+            _replace_dir(target); _export_commit(repo, sha, relative, target)
+            return target.resolve(), sha, repository_id
+        sha = _worktree_commit(repo, relative)
+        target = settings.repository_root / f"local-{repository_id}-{sha[:12]}{'-dirty' if sha.endswith('-dirty') else ''}"
+        _replace_dir(target); shutil.copytree(local, target, ignore=COPY_IGNORE)
+        return target.resolve(), sha, repository_id
     if not source.startswith(("https://", "git@")):
         raise ValueError("source must be a local directory or a public Git URL")
-    settings.repository_root.mkdir(parents=True, exist_ok=True)
-    target = settings.repository_root / f"clone-{uuid4().hex[:10]}"
-    Repo.clone_from(source, target, branch=request.branch, depth=300)
-    return target, _commit_sha(target)
+    repository_id = hashlib.sha1(f"git:{source.rstrip('/').removesuffix('.git').lower()}".encode()).hexdigest()[:12]
+    staging = settings.repository_root / f"clone-{uuid4().hex[:10]}"
+    repo = Repo.clone_from(source, staging, branch=request.branch, depth=None if request.commit else 300)
+    sha = repo.commit(request.commit).hexsha if request.commit else repo.head.commit.hexsha
+    if request.commit: repo.git.checkout(sha, "--detach")
+    target = settings.repository_root / f"clone-{repository_id}-{sha[:12]}"
+    repo.close(); _replace_dir(target); staging.rename(target)
+    return target.resolve(), sha, repository_id
 
 
 def _architecture(analyses) -> str:
@@ -91,15 +138,14 @@ def _vector_documents(repository_id, commit_sha, root, analyses):
 
 
 def ingest(request: IngestRequest, embedder: Embedder | None = None, build_embeddings: bool = True) -> RepositorySummary:
-    root, commit_sha = _materialize(request)
-    repository_id = hashlib.sha1(str(root).encode()).hexdigest()[:12]
+    root, commit_sha, repository_id = _materialize(request)
     analyses, coverage = analyze_repository(root, ANALYZERS, AnalysisContext(repository_id, commit_sha))
     graph = _graph(repository_id, analyses)
     # Persist repository root/source metadata in the graph so the MCP server can resolve state across processes.
     graph.backend.add_node(GraphNode(id=f"repo:{repository_id}", kind=NodeKind.REPOSITORY, name=root.name, metadata={"source": request.source, "root": str(root), "commit_sha": commit_sha}), repository_id)
     vectors = None
     if settings.chroma_host:
-        vectors = ChromaVectorStore(repository_id)
+        vectors = ChromaVectorStore(f"{repository_id}_{commit_sha[:12]}")
         vectors.upsert(_vector_documents(repository_id, commit_sha, root, analyses))
     all_functions = [fun for analysis in analyses for fun in analysis.functions]
     history, findings = GitEvolution.mine(root), scan_python(root)
@@ -113,9 +159,22 @@ def ingest(request: IngestRequest, embedder: Embedder | None = None, build_embed
             for unit in analysis.units: handle.write(unit.model_dump_json()+"\n")
     (metadata_dir/"findings.json").write_text(json.dumps([f.model_dump() for f in findings],indent=2),encoding="utf-8")
     (metadata_dir/"embeddings.npz").unlink(missing_ok=True)
-    index = CodeIndex(repository_id, commit_sha, root, [u for a in analyses for u in a.units], coverage)
+    index = CodeIndex(repository_id, commit_sha, root, [u for a in analyses for u in a.units], coverage, indexed_at=summary.indexed_at.isoformat())
     if build_embeddings: index.ensure_embeddings(embedder or default_embedder())
-    registry.forget(repository_id); registry.register(index)
+    registry.forget(repository_id, commit_sha); registry.register(index)
     state=RepositoryState(summary=summary,graph=graph,vectors=vectors,git=history,findings=findings,root=root)
     store.add(state)
     return summary
+
+
+def delete_version(repository_id: str, commit_sha: str) -> bool:
+    """Remove one indexed commit (snapshot, local index, cached state) without touching other versions."""
+    removed = False
+    for summary_path in settings.repository_root.glob("*/.repomind/summary.json") if settings.repository_root.exists() else []:
+        try: data = json.loads(summary_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError): continue
+        if data.get("id") == repository_id and data.get("commit_sha") == commit_sha:
+            shutil.rmtree(summary_path.parent.parent); removed = True
+    registry.forget(repository_id, commit_sha)
+    store.remove(repository_id, commit_sha)
+    return removed

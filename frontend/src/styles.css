@@ -15,7 +15,7 @@ h1{font-size:28px;letter-spacing:-1.2px;margin:4px 0}.eyebrow{margin:0;color:#63
 .muted{color:#8090ad}.small{font-size:11px}.mono{font-family:'DM Mono',monospace;font-size:12px}
 .ingest{display:flex;width:min(520px,100%);gap:8px}
 input,textarea{background:#101b30;border:1px solid #2a3955;color:#deebff;border-radius:7px;padding:10px;font:12px 'DM Mono',monospace}
-.ingest input{flex:1}
+.ingest input{flex:1}.ingest input.commit{flex:0 0 150px}
 button{border:0;border-radius:7px;background:#63f3c5;color:#06231d;padding:9px 14px;font-weight:800;cursor:pointer;font-family:inherit}
 button:disabled{opacity:.6;cursor:wait}
 button.link{background:none;color:#8ec5ff;padding:0;font-weight:700;text-align:left}button.link:hover{text-decoration:underline}
