@@ -104,7 +104,7 @@ function App() {
       <header>
         <div><p className="eyebrow">THEME 1 · AGENTIC CODE INTELLIGENCE</p><h1>{active ? active.name : "Index a repository"}</h1>
           {active && <p className="muted mono">repo {active.id} · commit {active.commit_sha} · {active.architecture}</p>}</div>
-        <form onSubmit={ingest} className="ingest"><input value={source} onChange={(e) => setSource(e.target.value)} aria-label="Repository path or Git URL" placeholder="Local path or https Git URL" /><input className="commit" value={commit} onChange={(e) => setCommit(e.target.value)} aria-label="Commit or ref (optional)" placeholder="commit / ref (optional)" /><button disabled={!!busy}>Index</button></form>
+        <form onSubmit={ingest} className="ingest"><input value={source} onChange={(e) => setSource(e.target.value)} aria-label="Repository path or Git URL" placeholder="Local path or https Git URL" /><input className="commit" value={commit} onChange={(e) => setCommit(e.target.value)} aria-label="Commit or ref (optional)" placeholder="commit (optional)" /><button disabled={!!busy}>Index</button></form>
       </header>
       {busy && <div className="status">{busy}</div>}
       {error && <div className="status error" role="alert">{error}</div>}

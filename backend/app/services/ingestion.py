@@ -63,6 +63,13 @@ def _export_commit(repo, sha: str, relative: str, target: Path) -> None:
         archive.extractall(target, members=members, filter="data")
 
 
+def _display_name(source: str) -> str:
+    """Human-readable repository name: the source folder or the Git URL's repository name."""
+    local = Path(source).expanduser()
+    if local.exists(): return local.resolve().name
+    return source.rstrip("/").rsplit("/", 1)[-1].rsplit(":", 1)[-1].removesuffix(".git") or source
+
+
 def _replace_dir(target: Path) -> None:
     if target.exists(): shutil.rmtree(target)
 
@@ -151,7 +158,7 @@ def ingest(request: IngestRequest, embedder: Embedder | None = None, build_embed
     history, findings = GitEvolution.mine(root), scan_python(root)
     languages = dict(coverage.by_language)
     dependencies = sorted({imp.split(".")[0] for analysis in analyses for imp in analysis.imports})
-    summary = RepositorySummary(id=repository_id, name=root.name, source=request.source, languages=languages, files=len(analyses), functions=len(all_functions), classes=sum(len(a.classes) for a in analyses), dependencies=dependencies[:100], architecture=_architecture(analyses), risk_score=repository_risk(all_functions, history, findings), indexed_at=datetime.now(timezone.utc), commit_sha=commit_sha, units=coverage.units, parse_coverage=coverage)
+    summary = RepositorySummary(id=repository_id, name=_display_name(request.source), source=request.source, languages=languages, files=len(analyses), functions=len(all_functions), classes=sum(len(a.classes) for a in analyses), dependencies=dependencies[:100], architecture=_architecture(analyses), risk_score=repository_risk(all_functions, history, findings), indexed_at=datetime.now(timezone.utc), commit_sha=commit_sha, units=coverage.units, parse_coverage=coverage)
     metadata_dir=root/".repomind"; metadata_dir.mkdir(parents=True,exist_ok=True)
     (metadata_dir/"summary.json").write_text(summary.model_dump_json(indent=2),encoding="utf-8")
     with (metadata_dir/"units.jsonl").open("w",encoding="utf-8") as handle:
