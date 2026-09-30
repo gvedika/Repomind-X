@@ -4,7 +4,9 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-from app.models.schemas import IngestRequest, QueryRequest, QueryResponse, RepositorySummary
+from app.models.schemas import IngestRequest, QueryRequest, QueryResponse, RepositorySummary, SearchRequest, SearchResponse, SourceStatus
+from app.retrieval.service import IndexNotFound, registry, search as retrieval_search
+from app.retrieval.source import verify_source
 from app.services.ingestion import ingest
 from app.services.orchestrator import answer
 from app.services.store import store
@@ -20,8 +22,8 @@ async def lifespan(_app):
     store.restore()
     yield
 
-app=FastAPI(title="RepoMind-X API",version="0.1.0",description="Evidence-first repository intelligence API",lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app=FastAPI(title="RepoMind-X API",version="0.2.0",description="Retrieval-first code intelligence: ranked, source-verified code units for natural-language questions",lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173","http://127.0.0.1:5173","http://localhost:4173","http://127.0.0.1:4173"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 
 def state_or_404(repository_id: str):
@@ -82,6 +84,30 @@ def impact(repository_id: str, symbol: str = Query(min_length=1)) -> dict:
 
 @app.get("/api/repositories/{repository_id}/findings")
 def findings(repository_id: str) -> list[dict]: return [f.model_dump() for f in state_or_404(repository_id).findings]
+
+
+@app.post("/api/search", response_model=SearchResponse)
+def search_code(request: SearchRequest) -> SearchResponse:
+    """Primary Theme 1 operation: ranked code units with exact repository-relative paths and one-based line spans."""
+    try: return retrieval_search(request)
+    except IndexNotFound as exc: raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc: raise HTTPException(400, str(exc)) from exc
+
+
+@app.get("/api/repositories/{repository_id}/units/{unit_id}")
+def unit_source(repository_id: str, unit_id: str, commit_sha: str | None = None) -> dict:
+    """Full verified source of one indexed unit (bounded), for opening a result in the UI."""
+    try: index = registry.get(repository_id, commit_sha)
+    except IndexNotFound as exc: raise HTTPException(404, str(exc)) from exc
+    unit = index.by_id.get(unit_id) or next((u for u in index.all_units if u.unit_id == unit_id), None)
+    if unit is None: raise HTTPException(404, "Unknown unit id for this repository and commit.")
+    check = verify_source(index.root, unit, index.repository_id, index.commit_sha, max_lines=400, max_chars=40000)
+    if check.status in {SourceStatus.INVALID, SourceStatus.MISSING}: raise HTTPException(410, "; ".join(check.warnings))
+    return {"unit": unit.model_dump(exclude={"source"}), "source": check.excerpt, "source_status": check.status,
+            "excerpt_line_end": check.excerpt_line_end, "truncated": check.truncated, "warnings": check.warnings,
+            "callers": [e.as_dict({u.unit_id: u for u in index.all_units}) for e in index.graph.callers(unit.unit_id)][:20],
+            "callees": [e.as_dict({u.unit_id: u for u in index.all_units}) for e in index.graph.callees(unit.unit_id)][:20],
+            "unresolved_calls": index.graph.unresolved.get(unit.unit_id, [])[:20]}
 
 
 @app.post("/api/query", response_model=QueryResponse)

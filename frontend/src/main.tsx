@@ -1,38 +1,202 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import ReactFlow, { Background, Controls, Edge, Node } from "reactflow";
-import "reactflow/dist/style.css";
 import "./styles.css";
 
-type Repository = { id: string; name: string; languages: Record<string, number>; files: number; functions: number; classes: number; dependencies: string[]; architecture: string; risk_score: number };
-type QueryResult = { answer: string; confidence: number; plan: string[]; evidence: { files: string[]; functions: string[]; graph_path: string[]; commits: string[] }; verification_notes: string[] };
-type GraphData = { nodes: Array<{ id: string; name: string; kind: string }>; edges: Array<{ source: string; target: string; kind: string }> };
-const api = async <T,>(path: string, init?: RequestInit): Promise<T> => { const response = await fetch(path, init); if (!response.ok) throw new Error(await response.text()); return response.json() as Promise<T>; };
+type Coverage = { files_seen: number; files_parsed: number; files_partial: number; files_failed: number; files_skipped: number; units: number; by_language: Record<string, number>; skipped_reasons: Record<string, number>; ratio: number; errors: Array<{ file_path: string; status: string; reason?: string }> };
+type Repository = { id: string; name: string; source: string; languages: Record<string, number>; files: number; functions: number; classes: number; units: number; commit_sha: string; architecture: string; parse_coverage?: Coverage | null };
+type Relationship = { type: string; from_name?: string; to_name?: string; resolution?: string; line?: number; hops?: number; observed_order?: string; first_call?: { name: string; line: number }; second_call?: { name: string; line: number }; caveat?: string; count?: number };
+type Result = { rank: number; unit_id: string; name: string; qualified_name: string; unit_type: string; language: string; signature?: string; file_path: string; line_start: number; line_end: number; excerpt: string; excerpt_line_end: number; excerpt_truncated: boolean; source_status: string; score: number; score_components: Record<string, number>; component_ranks: Record<string, number>; evidence: string[]; relationships: Relationship[]; warnings: string[] };
+type Step = { iteration: number; action: string; reason: string; candidates: number; new_candidates: number; duration_ms: number };
+type SearchResponse = { query: string; repository_id: string; commit_sha: string; mode: string; results: Result[]; trace: Step[]; latency_ms: number; iterations: number; tool_calls: number; stop_reason: string; warnings: string[] };
+type UnitSource = { unit: { qualified_name: string; file_path: string; line_start: number; line_end: number; signature?: string }; source: string; source_status: string; excerpt_line_end: number; truncated: boolean; warnings: string[]; callers: Relationship[]; callees: Relationship[]; unresolved_calls: Array<{ name: string; line: number; reason: string }> };
+type Answer = { answer: string; confidence: number; verification_notes: string[] };
+
+const MODES: Array<{ value: string; label: string; hint: string }> = [
+  { value: "hybrid", label: "Hybrid", hint: "BM25 + BGE fused with RRF (default baseline)" },
+  { value: "adaptive", label: "Adaptive", hint: "Bounded evidence-guided loop with graph expansion" },
+  { value: "semantic", label: "Semantic", hint: "BGE dense retrieval only" },
+  { value: "lexical", label: "Lexical", hint: "Code-aware BM25 only" },
+  { value: "hybrid_rerank", label: "Hybrid + rerank", hint: "Hybrid then CrossEncoder on a bounded pool (slower)" },
+];
+const EXAMPLES = ["compare two digests in constant time", "retry an async operation with growing delays", "which handlers call withRetry before chargeCard", "what does login call to verify credentials"];
+
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, init);
+  if (!response.ok) {
+    let detail = await response.text();
+    try { detail = JSON.parse(detail).detail ?? detail; } catch { /* plain text */ }
+    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+  }
+  return response.json() as Promise<T>;
+}
+const post = (body: unknown): RequestInit => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
 function App() {
-  const [repos, setRepos] = useState<Repository[]>([]), [active, setActive] = useState<Repository | null>(null);
-  const [source, setSource] = useState("/opt/examples/sample_repo"), [question, setQuestion] = useState("Explain authentication flow"), [result, setResult] = useState<QueryResult | null>(null), [loading, setLoading] = useState(false);
-  const [graph, setGraph] = useState<GraphData>({ nodes: [], edges: [] });
-  useEffect(() => { api<Repository[]>("/api/repositories").then(setRepos).catch(() => undefined); }, []);
-  useEffect(() => { if (active) api<GraphData>(`/api/repositories/${active.id}/graph`).then(setGraph).catch(() => undefined); }, [active]);
-  const flow = useMemo(() => ({
-    nodes: graph.nodes.slice(0, 80).map((node, index): Node => ({ id: node.id, position: { x: (index % 6) * 190, y: Math.floor(index / 6) * 100 }, data: { label: node.name }, style: { borderColor: node.kind === "Function" ? "#63f3c5" : "#334155", background: "#111a2e", color: "#dbeafe", fontSize: 11 } })),
-    edges: graph.edges.slice(0, 120).map((edge, index): Edge => ({ id: `e${index}`, source: edge.source, target: edge.target, label: edge.kind, animated: edge.kind === "CALLS", style: { stroke: "#52617c" }, labelStyle: { fill: "#94a3b8", fontSize: 9 } })),
-  }), [graph]);
-  async function ingest(event: React.FormEvent) { event.preventDefault(); setLoading(true); try { const repo = await api<Repository>("/api/repositories/ingest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source }) }); setActive(repo); setRepos((items) => [...items.filter((item) => item.id !== repo.id), repo]); } catch (error) { alert(String(error)); } finally { setLoading(false); } }
-  async function ask(event: React.FormEvent) { event.preventDefault(); if (!active) return; setLoading(true); try { setResult(await api<QueryResult>("/api/query", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ repository_id: active.id, question }) })); } catch (error) { alert(String(error)); } finally { setLoading(false); } }
-  const evidenceItems = result ? [...result.evidence.files.map((item) => `File: ${item}`), ...result.evidence.functions.map((item) => `Function: ${item}`), ...result.evidence.graph_path.map((item) => `Graph: ${item}`)] : [];
+  const [repos, setRepos] = useState<Repository[]>([]);
+  const [active, setActive] = useState<Repository | null>(null);
+  const [source, setSource] = useState("../examples/sample_js_repo");
+  const [query, setQuery] = useState(EXAMPLES[0]);
+  const [mode, setMode] = useState("hybrid");
+  const [compare, setCompare] = useState(false);
+  const [topK, setTopK] = useState(8);
+  const [primary, setPrimary] = useState<SearchResponse | null>(null);
+  const [baseline, setBaseline] = useState<SearchResponse | null>(null);
+  const [opened, setOpened] = useState<UnitSource | null>(null);
+  const [answer, setAnswer] = useState<Answer | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => { api<Repository[]>("/api/repositories").then((items) => { setRepos(items); if (items.length) setActive(items[items.length - 1]); }).catch(() => undefined); }, []);
+
+  async function run<T>(label: string, work: () => Promise<T>): Promise<T | undefined> {
+    setBusy(label); setError(null);
+    try { return await work(); } catch (err) { setError(err instanceof Error ? err.message : String(err)); return undefined; } finally { setBusy(null); }
+  }
+
+  async function ingest(event: React.FormEvent) {
+    event.preventDefault();
+    const repo = await run("Indexing repository (first run downloads the CPU embedding model)...", () => api<Repository>("/api/repositories/ingest", post({ source })));
+    if (repo) { setActive(repo); setRepos((items) => [...items.filter((item) => item.id !== repo.id), repo]); setPrimary(null); setBaseline(null); }
+  }
+
+  async function search(event?: React.FormEvent) {
+    event?.preventDefault();
+    if (!active) return;
+    if (query.trim().length < 3) { setError("Enter a question of at least 3 characters."); return; }
+    setAnswer(null);
+    await run("Searching...", async () => {
+      const body = { repository_id: active.id, query, top_k: topK, commit_sha: active.commit_sha };
+      const baselineMode = mode === "hybrid" ? "semantic" : "hybrid";
+      const [main, base] = await Promise.all([
+        api<SearchResponse>("/api/search", post({ ...body, mode })),
+        compare ? api<SearchResponse>("/api/search", post({ ...body, mode: baselineMode })) : Promise.resolve(null),
+      ]);
+      setPrimary(main); setBaseline(base);
+    });
+  }
+
+  async function open(result: Result) {
+    if (!active) return;
+    const unit = await run("Loading source...", () => api<UnitSource>(`/api/repositories/${active.id}/units/${result.unit_id}?commit_sha=${active.commit_sha}`));
+    if (unit) setOpened(unit);
+  }
+
+  async function explain() {
+    if (!active) return;
+    const result = await run("Generating optional explanation...", () => api<Answer>("/api/query", post({ repository_id: active.id, question: query })));
+    if (result) setAnswer(result);
+  }
+
+  const coverage = active?.parse_coverage;
   return <main>
-    <aside><div className="brand"><span>+</span> RepoMind-X</div><p className="tagline">Repository intelligence, grounded in code.</p><nav><a className="selected" href="#overview">Overview</a><a href="#chat">AI Chat</a><a href="#graph">Knowledge Graph</a></nav><div className="repo-list"><small>INDEXED REPOSITORIES</small>{repos.map((repo) => <button key={repo.id} onClick={() => setActive(repo)} className={active?.id === repo.id ? "repo active" : "repo"}>{repo.name}<em>{repo.functions} symbols</em></button>)}</div></aside>
-    <section className="workspace" id="overview"><header><div><p className="eyebrow">AUTONOMOUS SOFTWARE INTELLIGENCE</p><h1>{active ? active.name : "Connect a repository"}</h1></div><form onSubmit={ingest} className="ingest"><input value={source} onChange={(event) => setSource(event.target.value)} aria-label="Repository source" /><button disabled={loading}>Index repository</button></form></header>
-      {!active ? <div className="empty"><div>+</div><h2>Index a repository to begin</h2><p>Use a local path, a GitHub URL, or the supplied sample repository.</p></div> : <>
-        <div className="metrics"><Metric label="FILES" value={active.files} /><Metric label="FUNCTIONS" value={active.functions} /><Metric label="DEPENDENCIES" value={active.dependencies.length} /><Metric label="RISK SCORE" value={`${active.risk_score}/100`} warn={active.risk_score > 50} /></div>
-        <div className="grid"><article className="chat" id="chat"><div className="card-head"><h2>Ask the repository</h2><span>Hybrid GraphRAG</span></div><form onSubmit={ask}><textarea value={question} onChange={(event) => setQuestion(event.target.value)} /><button disabled={loading}>{loading ? "Reasoning..." : "Analyze"}</button></form>{result && <div className="response"><p>{result.answer}</p><div className="confidence">Confidence <b>{Math.round(result.confidence * 100)}%</b></div><Evidence title="Evidence" items={evidenceItems} />{result.evidence.commits.length > 0 && <Evidence title="Evolution" items={result.evidence.commits} />}<Evidence title="Verification" items={result.verification_notes} /></div>}</article><article className="graph" id="graph"><div className="card-head"><h2>Knowledge graph</h2><span>{graph.nodes.length} nodes</span></div><ReactFlow nodes={flow.nodes} edges={flow.edges} fitView><Background /><Controls /></ReactFlow></article></div>
-        <article className="architecture"><h2>Repository profile</h2><p><b>{active.architecture}</b> - {Object.keys(active.languages).join(", ") || "No supported sources detected"}</p><div className="chips">{active.dependencies.slice(0, 12).map((dependency) => <span key={dependency}>{dependency}</span>)}</div></article>
+    <aside>
+      <div className="brand"><span>+</span> RepoMind-X</div>
+      <p className="tagline">Natural-language code retrieval with exact, verified source locations.</p>
+      <div className="repo-list"><small>INDEXED REPOSITORIES</small>
+        {repos.length === 0 && <p className="muted">None yet.</p>}
+        {repos.map((repo) => <button key={repo.id} onClick={() => { setActive(repo); setPrimary(null); setBaseline(null); }} className={active?.id === repo.id ? "repo active" : "repo"}>
+          {repo.name}<em>{Object.keys(repo.languages).join(", ") || "no sources"} · {repo.units} units · {repo.commit_sha.slice(0, 8)}</em></button>)}
+      </div>
+    </aside>
+    <section className="workspace">
+      <header>
+        <div><p className="eyebrow">THEME 1 · AGENTIC CODE INTELLIGENCE</p><h1>{active ? active.name : "Index a repository"}</h1>
+          {active && <p className="muted mono">repo {active.id} · commit {active.commit_sha} · {active.architecture}</p>}</div>
+        <form onSubmit={ingest} className="ingest"><input value={source} onChange={(e) => setSource(e.target.value)} aria-label="Repository path or Git URL" placeholder="Local path or https Git URL" /><button disabled={!!busy}>Index</button></form>
+      </header>
+      {busy && <div className="status">{busy}</div>}
+      {error && <div className="status error" role="alert">{error}</div>}
+      {!active ? <div className="empty"><h2>Index a JavaScript repository to begin</h2><p>Try the bundled fixture <code>../examples/sample_js_repo</code> (path relative to the backend working directory) or a public Git URL.</p></div> : <>
+        {coverage && <CoverageBar coverage={coverage} />}
+        <article className="card">
+          <form onSubmit={search} className="search">
+            <textarea value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Question" onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) search(); }} />
+            <div className="controls">
+              <div className="modes" role="radiogroup" aria-label="Retrieval mode">{MODES.map((m) => <label key={m.value} title={m.hint} className={mode === m.value ? "mode on" : "mode"}><input type="radio" name="mode" value={m.value} checked={mode === m.value} onChange={() => setMode(m.value)} />{m.label}</label>)}</div>
+              <label className="inline">top-k <input type="number" min={1} max={50} value={topK} onChange={(e) => setTopK(Math.max(1, Math.min(50, Number(e.target.value) || 1)))} /></label>
+              <label className="inline"><input type="checkbox" checked={compare} onChange={(e) => setCompare(e.target.checked)} /> compare with {mode === "hybrid" ? "semantic" : "hybrid"} baseline</label>
+              <button disabled={!!busy}>Search</button>
+            </div>
+            <div className="examples">{EXAMPLES.map((q) => <button type="button" key={q} className="chip-btn" onClick={() => setQuery(q)}>{q}</button>)}</div>
+          </form>
+        </article>
+        {primary && <div className={baseline ? "columns" : ""}>
+          <ResultsPanel response={primary} onOpen={open} />
+          {baseline && <ResultsPanel response={baseline} onOpen={open} baselineOf={primary} />}
+        </div>}
+        {primary && <details className="card optional"><summary>Optional: generated explanation (requires an LLM provider; ranked snippets above are the primary output)</summary>
+          <button onClick={explain} disabled={!!busy}>Explain with LLM</button>
+          {answer && <div className="answer"><p>{answer.answer}</p><small>confidence {Math.round(answer.confidence * 100)}%</small>{answer.verification_notes.map((n, i) => <code key={i}>{n}</code>)}</div>}
+        </details>}
       </>}
     </section>
+    {opened && <SourceModal unit={opened} onClose={() => setOpened(null)} />}
   </main>;
 }
+
+function CoverageBar({ coverage }: { coverage: Coverage }) {
+  return <div className="coverage">
+    <Metric label="PARSE COVERAGE" value={`${Math.round(coverage.ratio * 100)}%`} warn={coverage.ratio < 1} />
+    <Metric label="FILES PARSED" value={`${coverage.files_parsed}/${coverage.files_seen}`} />
+    <Metric label="PARTIAL / FAILED" value={`${coverage.files_partial} / ${coverage.files_failed}`} warn={coverage.files_partial + coverage.files_failed > 0} />
+    <Metric label="SKIPPED" value={coverage.files_skipped} />
+    <Metric label="CODE UNITS" value={coverage.units} />
+    <Metric label="LANGUAGES" value={Object.entries(coverage.by_language).map(([k, v]) => `${k} ${v}`).join(", ") || "-"} />
+  </div>;
+}
+
+function ResultsPanel({ response, onOpen, baselineOf }: { response: SearchResponse; onOpen: (r: Result) => void; baselineOf?: SearchResponse }) {
+  const primaryRanks = new Map(baselineOf?.results.map((r) => [r.unit_id, r.rank]));
+  return <article className="card results">
+    <div className="card-head"><h2>{baselineOf ? "Baseline" : "Results"} · {response.mode}</h2>
+      <span>{response.results.length} units · {response.latency_ms.toFixed(0)} ms · {response.tool_calls} tool calls · {response.iterations} iter · stop: {response.stop_reason}</span></div>
+    {response.warnings.map((w, i) => <p className="warn-line" key={i}>⚠ {w}</p>)}
+    {response.results.length === 0 && <p className="muted">No matching code units. Try describing the behaviour differently or use lexical mode for exact identifiers.</p>}
+    <ol className="result-list">{response.results.map((r) => <li key={r.unit_id} className="result">
+      <div className="result-head">
+        <span className="rank">#{r.rank}</span>
+        <button className="link" onClick={() => onOpen(r)} title="Open full verified source">{r.qualified_name}</button>
+        <span className="badge">{r.unit_type}</span><span className="badge">{r.language}</span>
+        <span className={`badge status-${r.source_status}`}>{r.source_status}</span>
+        {baselineOf && <span className="badge">{primaryRanks.has(r.unit_id) ? `#${primaryRanks.get(r.unit_id)} in ${baselineOf.mode}` : `not in ${baselineOf.mode}`}</span>}
+      </div>
+      <button className="location link mono" onClick={() => onOpen(r)}>{r.file_path}:{r.line_start}-{r.line_end}</button>
+      <div className="components">{r.evidence.map((e) => <span key={e} className={`ev ev-${e}`}>{e}</span>)}
+        {Object.entries(r.score_components).map(([k, v]) => <span key={k} className="score mono">{k}{r.component_ranks[k] ? ` #${r.component_ranks[k]}` : ""} {v.toFixed(3)}</span>)}</div>
+      <Code text={r.excerpt} start={r.line_start} />
+      {r.excerpt_truncated && <p className="muted small">Excerpt truncated at line {r.excerpt_line_end}; full span is {r.line_start}-{r.line_end}.</p>}
+      {r.relationships.length > 0 && <div className="rels">{r.relationships.map((rel, i) => <Rel key={i} rel={rel} />)}</div>}
+      {r.warnings.length > 0 && <p className="muted small">{r.warnings.join(" · ")}</p>}
+    </li>)}</ol>
+    {response.trace.length > 0 && <details className="trace" open={response.mode === "adaptive"}><summary>Search trace ({response.trace.length} steps)</summary>
+      <table><thead><tr><th>#</th><th>action</th><th>candidates</th><th>new</th><th>ms</th><th>reason</th></tr></thead>
+        <tbody>{response.trace.map((t) => <tr key={t.iteration}><td>{t.iteration}</td><td className="mono">{t.action}</td><td>{t.candidates}</td><td>{t.new_candidates}</td><td>{t.duration_ms}</td><td>{t.reason}</td></tr>)}</tbody></table>
+    </details>}
+  </article>;
+}
+
+function Rel({ rel }: { rel: Relationship }) {
+  if (rel.type === "CALL_ORDER") return <code>call order: {rel.first_call?.name} (line {rel.first_call?.line}) {rel.observed_order} {rel.second_call?.name} (line {rel.second_call?.line}) — {rel.caveat}</code>;
+  if (rel.type === "UNRESOLVED_CALLS") return <code>{rel.count} unresolved call(s) (dynamic dispatch or external) — not linked</code>;
+  return <code>{rel.type}: {rel.from_name} → {rel.to_name}{rel.resolution ? ` [${rel.resolution}]` : ""}{rel.line ? ` line ${rel.line}` : ""}</code>;
+}
+
+function Code({ text, start }: { text: string; start: number }) {
+  return <pre className="code">{text.split("\n").map((line, i) => <div key={i}><span className="ln">{start + i}</span>{line || " "}</div>)}</pre>;
+}
+
+function SourceModal({ unit, onClose }: { unit: UnitSource; onClose: () => void }) {
+  useEffect(() => { const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose(); window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [onClose]);
+  return <div className="modal" onClick={onClose} role="dialog" aria-modal="true"><div className="modal-body" onClick={(e) => e.stopPropagation()}>
+    <div className="card-head"><h2>{unit.unit.qualified_name}</h2><button onClick={onClose}>Close</button></div>
+    <p className="mono">{unit.unit.file_path}:{unit.unit.line_start}-{unit.unit.line_end} · {unit.source_status}</p>
+    {unit.warnings.map((w, i) => <p className="warn-line" key={i}>⚠ {w}</p>)}
+    <Code text={unit.source} start={unit.unit.line_start} />
+    <div className="rels">{unit.callers.map((r, i) => <code key={`c${i}`}>called by {r.from_name} [{r.resolution}]</code>)}
+      {unit.callees.map((r, i) => <code key={`e${i}`}>calls {r.to_name} [{r.resolution}] line {r.line}</code>)}
+      {unit.unresolved_calls.map((r, i) => <code key={`u${i}`}>unresolved {r.name} line {r.line} ({r.reason})</code>)}</div>
+  </div></div>;
+}
+
 function Metric({ label, value, warn = false }: { label: string; value: string | number; warn?: boolean }) { return <article className={`metric ${warn ? "warn" : ""}`}><small>{label}</small><strong>{value}</strong></article>; }
-function Evidence({ title, items }: { title: string; items: string[] }) { return <div className="evidence"><small>{title.toUpperCase()}</small>{items.slice(0, 8).map((item, index) => <code key={index}>{item}</code>)}</div>; }
 createRoot(document.getElementById("root")!).render(<App />);
