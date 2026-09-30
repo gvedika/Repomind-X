@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.models.schemas import IngestRequest, RepositorySummary, GraphNode, NodeKind
 from app.services.analyzer import PythonAnalyzer
 from app.services.code_units import AnalysisContext, analyze_repository
+from app.services.js_analyzer import JavaScriptAnalyzer
 from app.services.git_history import GitEvolution
 from app.services.graph import build_graph
 from app.services.risk import repository_risk
@@ -18,7 +19,7 @@ from app.services.vector import ChromaVectorStore, VectorDocument
 from app.security.input_validation import validate_repository_source
 
 
-ANALYZERS = (PythonAnalyzer(),)
+ANALYZERS = (JavaScriptAnalyzer(), PythonAnalyzer())
 
 
 def _commit_sha(path: Path) -> str:
@@ -46,6 +47,10 @@ def _materialize(request: IngestRequest) -> tuple[Path, str]:
 
 def _architecture(analyses) -> str:
     imports = {imp.split(".")[0] for a in analyses for imp in a.imports}
+    js_imports = {imp.removeprefix("node:").split("/")[0] for a in analyses if a.language == "JavaScript" for imp in a.imports}
+    if {"express", "koa", "fastify", "@nestjs", "hapi"} & js_imports: return "JavaScript web service / API"
+    if {"react", "vue", "svelte", "@angular", "next"} & js_imports: return "JavaScript front-end application"
+    if any(a.language == "JavaScript" for a in analyses) and not any(a.language == "Python" for a in analyses): return "modular JavaScript application"
     if {"fastapi", "flask", "django"} & imports: return "web service / API"
     if {"sqlalchemy", "django"} & imports: return "data-backed application"
     if any("cli" in a.path.lower() for a in analyses): return "command-line application"
