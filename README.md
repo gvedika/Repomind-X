@@ -274,3 +274,4 @@ first; [`.env.example`](.env.example) documents every setting. Inside the contai
 cd backend && python -m pytest -q      # 75 passed, 1 skipped
 cd frontend && npm run build
 ```
+Link to video: https://drive.google.com/file/d/1pdqkkMYB5ouhzxFP1DvsoOMSNpIoHpo6/view?usp=sharing
