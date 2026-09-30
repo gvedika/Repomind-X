@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
+import { highlightLines } from "./highlight";
 
 type Coverage = { files_seen: number; files_parsed: number; files_partial: number; files_failed: number; files_skipped: number; units: number; by_language: Record<string, number>; skipped_reasons: Record<string, number>; ratio: number; errors: Array<{ file_path: string; status: string; reason?: string }> };
 type Repository = { id: string; name: string; source: string; languages: Record<string, number>; files: number; functions: number; classes: number; units: number; commit_sha: string; architecture: string; parse_coverage?: Coverage | null };
@@ -8,7 +9,7 @@ type Relationship = { type: string; from_name?: string; to_name?: string; resolu
 type Result = { rank: number; unit_id: string; name: string; qualified_name: string; unit_type: string; language: string; signature?: string; file_path: string; line_start: number; line_end: number; excerpt: string; excerpt_line_end: number; excerpt_truncated: boolean; source_status: string; score: number; score_components: Record<string, number>; component_ranks: Record<string, number>; evidence: string[]; relationships: Relationship[]; warnings: string[] };
 type Step = { iteration: number; action: string; reason: string; candidates: number; new_candidates: number; duration_ms: number };
 type SearchResponse = { query: string; repository_id: string; commit_sha: string; mode: string; results: Result[]; trace: Step[]; latency_ms: number; iterations: number; tool_calls: number; stop_reason: string; warnings: string[] };
-type UnitSource = { unit: { qualified_name: string; file_path: string; line_start: number; line_end: number; signature?: string }; source: string; source_status: string; excerpt_line_end: number; truncated: boolean; warnings: string[]; callers: Relationship[]; callees: Relationship[]; unresolved_calls: Array<{ name: string; line: number; reason: string }> };
+type UnitSource = { unit: { qualified_name: string; file_path: string; line_start: number; line_end: number; signature?: string; language: string }; source: string; source_status: string; excerpt_line_end: number; truncated: boolean; warnings: string[]; callers: Relationship[]; callees: Relationship[]; unresolved_calls: Array<{ name: string; line: number; reason: string }> };
 type Answer = { answer: string; confidence: number; verification_notes: string[] };
 
 const MODES: Array<{ value: string; label: string; hint: string }> = [
@@ -162,13 +163,14 @@ function ResultsPanel({ response, onOpen, baselineOf }: { response: SearchRespon
         <span className={`badge status-${r.source_status}`}>{r.source_status}</span>
         {baselineOf && <span className="badge">{primaryRanks.has(r.unit_id) ? `#${primaryRanks.get(r.unit_id)} in ${baselineOf.mode}` : `not in ${baselineOf.mode}`}</span>}
       </div>
-      <button className="location link mono" onClick={() => onOpen(r)}>{r.file_path}:{r.line_start}-{r.line_end}</button>
+      <div className="location-row"><button className="location link mono" onClick={() => onOpen(r)}>{r.file_path}:{r.line_start}-{r.line_end}</button><CopyButton text={`${r.file_path}:${r.line_start}-${r.line_end}`} /></div>
       <div className="components">{r.evidence.map((e) => <span key={e} className={`ev ev-${e}`}>{e}</span>)}
-        {Object.entries(r.score_components).map(([k, v]) => <span key={k} className="score mono">{k}{r.component_ranks[k] ? ` #${r.component_ranks[k]}` : ""} {v.toFixed(3)}</span>)}</div>
-      <Code text={r.excerpt} start={r.line_start} />
-      {r.excerpt_truncated && <p className="muted small">Excerpt truncated at line {r.excerpt_line_end}; full span is {r.line_start}-{r.line_end}.</p>}
+        <span className="why" title={Object.entries(r.score_components).map(([k, v]) => `${k}${r.component_ranks[k] ? ` #${r.component_ranks[k]}` : ""}: ${v.toFixed(3)}`).join("\n")}>{explainRank(r)}</span></div>
+      <Code text={r.excerpt} start={r.line_start} language={r.language} collapseAfter={12} />
+      {r.excerpt_truncated && <p className="muted small">Excerpt truncated at line {r.excerpt_line_end}; full span is {r.line_start}-{r.line_end}. Open the result to see all of it.</p>}
       {r.relationships.length > 0 && <div className="rels">{r.relationships.map((rel, i) => <Rel key={i} rel={rel} />)}</div>}
-      {r.warnings.length > 0 && <p className="muted small">{r.warnings.join(" · ")}</p>}
+      {r.source_status !== "verified" && r.warnings.map((w, i) => <p className="warn-line" key={i}>⚠ {w}</p>)}
+      {r.source_status === "verified" && r.warnings.length > 0 && <details className="notes"><summary>{r.warnings.length} parser note{r.warnings.length > 1 ? "s" : ""}</summary>{r.warnings.map((w, i) => <p key={i} className="muted small">{w}</p>)}</details>}
     </li>)}</ol>
     {response.trace.length > 0 && <details className="trace" open={response.mode === "adaptive"}><summary>Search trace ({response.trace.length} steps)</summary>
       <table><thead><tr><th>#</th><th>action</th><th>candidates</th><th>new</th><th>ms</th><th>reason</th></tr></thead>
@@ -183,17 +185,40 @@ function Rel({ rel }: { rel: Relationship }) {
   return <code>{rel.type}: {rel.from_name} → {rel.to_name}{rel.resolution ? ` [${rel.resolution}]` : ""}{rel.line ? ` line ${rel.line}` : ""}</code>;
 }
 
-function Code({ text, start }: { text: string; start: number }) {
-  return <pre className="code">{text.split("\n").map((line, i) => <div key={i}><span className="ln">{start + i}</span>{line || " "}</div>)}</pre>;
+const RANK_LABELS: Record<string, string> = { lexical: "keyword match", semantic: "meaning", semantic_rewrite: "rewritten query", reranker: "reranker", graph: "call graph", structural: "call order" };
+
+function explainRank(r: Result): string {
+  const parts = Object.keys(RANK_LABELS).filter((k) => r.component_ranks[k] !== undefined).map((k) => `${RANK_LABELS[k]} #${r.component_ranks[k]}`);
+  return parts.length ? `Ranked by ${parts.join(" · ")}` : "";
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try { await navigator.clipboard.writeText(text); setCopied(true); window.setTimeout(() => setCopied(false), 1500); } catch { /* clipboard unavailable */ }
+  }
+  return <button type="button" className="copy" onClick={copy} title="Copy path and line range">{copied ? "Copied" : "Copy"}</button>;
+}
+
+function Code({ text, start, language, collapseAfter }: { text: string; start: number; language: string; collapseAfter?: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const lines = highlightLines(text, language);
+  const limit = collapseAfter && !expanded ? collapseAfter : lines.length;
+  const hidden = lines.length - limit;
+  return <>
+    <pre className="code">{lines.slice(0, limit).map((parts, i) => <div key={i}><span className="ln">{start + i}</span>{parts.length ? parts : " "}</div>)}</pre>
+    {hidden > 0 && <button type="button" className="show-more" onClick={() => setExpanded(true)}>Show {hidden} more line{hidden > 1 ? "s" : ""}</button>}
+    {expanded && collapseAfter !== undefined && lines.length > collapseAfter && <button type="button" className="show-more" onClick={() => setExpanded(false)}>Show less</button>}
+  </>;
 }
 
 function SourceModal({ unit, onClose }: { unit: UnitSource; onClose: () => void }) {
   useEffect(() => { const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose(); window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [onClose]);
   return <div className="modal" onClick={onClose} role="dialog" aria-modal="true"><div className="modal-body" onClick={(e) => e.stopPropagation()}>
     <div className="card-head"><h2>{unit.unit.qualified_name}</h2><button onClick={onClose}>Close</button></div>
-    <p className="mono">{unit.unit.file_path}:{unit.unit.line_start}-{unit.unit.line_end} · {unit.source_status}</p>
+    <div className="location-row"><p className="mono">{unit.unit.file_path}:{unit.unit.line_start}-{unit.unit.line_end} · {unit.source_status}</p><CopyButton text={`${unit.unit.file_path}:${unit.unit.line_start}-${unit.unit.line_end}`} /></div>
     {unit.warnings.map((w, i) => <p className="warn-line" key={i}>⚠ {w}</p>)}
-    <Code text={unit.source} start={unit.unit.line_start} />
+    <Code text={unit.source} start={unit.unit.line_start} language={unit.unit.language} />
     <div className="rels">{unit.callers.map((r, i) => <code key={`c${i}`}>called by {r.from_name} [{r.resolution}]</code>)}
       {unit.callees.map((r, i) => <code key={`e${i}`}>calls {r.to_name} [{r.resolution}] line {r.line}</code>)}
       {unit.unresolved_calls.map((r, i) => <code key={`u${i}`}>unresolved {r.name} line {r.line} ({r.reason})</code>)}</div>
