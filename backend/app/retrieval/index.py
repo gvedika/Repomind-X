@@ -7,6 +7,7 @@ import numpy as np
 from app.models.schemas import CodeUnit, ParseCoverage
 from app.retrieval.documents import document_text, retrieval_units
 from app.retrieval.embedding import Embedder
+from app.retrieval.lexical import BM25Index, tokenize, unit_tokens
 
 METADATA_DIR = ".repomind"
 
@@ -69,3 +70,11 @@ class CodeIndex:
         scores = np.where(self._mask(language), scores, -np.inf)
         order = np.argsort(-scores, kind="stable")[:limit]
         return [(self.units[i].unit_id, float(scores[i])) for i in order if np.isfinite(scores[i])]
+
+    def lexical(self, query: str, limit: int, language: str | None = None) -> list[tuple[str, float]]:
+        if not self.units: return []
+        if self._lexical is None: self._lexical = BM25Index([unit_tokens(u) for u in self.units])
+        mask = self._mask(language)
+        scored = [(i, s) for i, s in self._lexical.scores(tokenize(query)).items() if mask[i] and s > 0]
+        scored.sort(key=lambda item: (-item[1], item[0]))
+        return [(self.units[i].unit_id, float(s)) for i, s in scored[:limit]]

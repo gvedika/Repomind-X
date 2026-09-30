@@ -1,0 +1,59 @@
+{
+  "split": "dev",
+  "queries": 18,
+  "units": 21,
+  "k": 10,
+  "modes": {
+    "semantic": {
+      "mrr@10": 1.0,
+      "recall@1": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "ndcg@10": 1.0,
+      "latency_ms_p50": 79.31,
+      "misses_at_1": []
+    },
+    "lexical": {
+      "mrr@10": 0.8148,
+      "recall@1": 0.6667,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "ndcg@10": 0.8624,
+      "latency_ms_p50": 6.94,
+      "misses_at_1": [
+        "dev-05",
+        "dev-06",
+        "dev-07",
+        "dev-12",
+        "dev-13",
+        "dev-16"
+      ]
+    },
+    "hybrid": {
+      "mrr@10": 0.9722,
+      "recall@1": 0.9444,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "ndcg@10": 0.9795,
+      "latency_ms_p50": 77.0,
+      "misses_at_1": [
+        "dev-12"
+      ]
+    },
+    "hybrid_rerank": {
+      "mrr@10": 0.8611,
+      "recall@1": 0.7222,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "ndcg@10": 0.8975,
+      "latency_ms_p50": 1280.82,
+      "misses_at_1": [
+        "dev-05",
+        "dev-07",
+        "dev-12",
+        "dev-16",
+        "dev-18"
+      ]
+    }
+  }
+}

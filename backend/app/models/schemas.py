@@ -191,7 +191,7 @@ class RetrievalMode(StrEnum):
 class SearchRequest(BaseModel):
     repository_id: str
     query: str = Field(min_length=3, max_length=2000)
-    mode: RetrievalMode = RetrievalMode.HYBRID_RERANK
+    mode: RetrievalMode = RetrievalMode.HYBRID
     top_k: int = Field(10, ge=1, le=50)
     commit_sha: str | None = None
     language: str | None = None

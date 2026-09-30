@@ -4,7 +4,7 @@ from app.retrieval.service import search
 from app.mcp_server.response import tool_response
 from app.security.input_validation import validate_tool_string
 
-DEFAULT_MODE = RetrievalMode.SEMANTIC
+DEFAULT_MODE = RetrievalMode.HYBRID
 
 
 @tool_response

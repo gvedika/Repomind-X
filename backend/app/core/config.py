@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     retrieval_candidates:int=50
     rerank_candidates:int=30
     rrf_k:int=60
+    rerank_fusion:str="rrf"
     mlflow_tracking_uri:str|None=None
     enable_llm_reasoning:bool=True
     mcp_server_command:str="python -m app.mcp_server.server"

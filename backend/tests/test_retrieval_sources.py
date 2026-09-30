@@ -45,7 +45,7 @@ def test_behavioral_query_returns_verified_snippet_with_exact_span(indexed):
     lines = split_lines((SAMPLE / top.file_path).read_text(encoding="utf-8"))
     assert top.excerpt == "\n".join(lines[5:17]) and top.excerpt_line_end == 17 and not top.excerpt_truncated
     assert response.commit_sha == summary.commit_sha and response.repository_id == summary.id
-    assert [r.rank for r in response.results] == [1, 2, 3] and response.trace[0].action == "semantic_search"
+    assert [r.rank for r in response.results] == [1, 2, 3] and response.trace[0].action == "semantic"
 
 
 def test_long_units_are_truncated_but_keep_full_span(indexed, tmp_path):

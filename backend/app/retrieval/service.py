@@ -2,12 +2,14 @@
 from __future__ import annotations
 import json
 import threading
+from dataclasses import dataclass, field
 from pathlib import Path
 from time import perf_counter
 from app.core.config import settings
 from app.models.schemas import RetrievalMode, SearchRequest, SearchResponse, SearchResult, SourceStatus, TraceStep
 from app.retrieval.embedding import Embedder, default_embedder
 from app.retrieval.index import METADATA_DIR, CodeIndex
+from app.retrieval.rerank import Reranker, default_reranker
 from app.retrieval.source import verify_source
 
 
@@ -88,22 +90,90 @@ def _coverage_warnings(index: CodeIndex) -> list[str]:
     return notes
 
 
-def search(request: SearchRequest, embedder: Embedder | None = None) -> SearchResponse:
+Ranked = list[tuple[str, float]]
+
+
+def reciprocal_rank_fusion(lists: dict[str, Ranked], k: int) -> Ranked:
+    """RRF over component rankings; each unit ID appears once, ties broken by best component rank then ID."""
+    fused: dict[str, float] = {}
+    best: dict[str, int] = {}
+    for ranked in lists.values():
+        for rank, (unit_id, _) in enumerate(ranked, 1):
+            fused[unit_id] = fused.get(unit_id, 0.0) + 1.0 / (k + rank)
+            best[unit_id] = min(best.get(unit_id, rank), rank)
+    return sorted(fused.items(), key=lambda item: (-item[1], best[item[0]], item[0]))
+
+
+@dataclass
+class Pipeline:
+    """Bounded single-pass pipeline shared by every non-adaptive mode (and by the adaptive loop's actions)."""
+    index: CodeIndex
+    embedder: Embedder
+    reranker: Reranker | None = None
+    language: str | None = None
+    components: dict[str, dict[str, float]] = field(default_factory=dict)
+    ranks: dict[str, dict[str, int]] = field(default_factory=dict)
+    trace: list[TraceStep] = field(default_factory=list)
+    tool_calls: int = 0
+
+    def _record(self, name: str, ranked: Ranked, reason: str, started: float, seen: set[str] | None = None) -> Ranked:
+        for rank, (unit_id, score) in enumerate(ranked, 1):
+            self.components.setdefault(unit_id, {})[name] = score
+            self.ranks.setdefault(unit_id, {})[name] = rank
+        new = len({u for u, _ in ranked} - seen) if seen is not None else len(ranked)
+        self.tool_calls += 1
+        self.trace.append(TraceStep(iteration=len(self.trace) + 1, action=name, reason=reason, candidates=len(ranked), new_candidates=new,
+                                    duration_ms=round((perf_counter() - started) * 1000, 2)))
+        return ranked
+
+    def semantic(self, query: str, limit: int, reason: str = "dense BGE retrieval", seen=None) -> Ranked:
+        started = perf_counter()
+        return self._record("semantic", self.index.semantic(query, self.embedder, limit, self.language), reason, started, seen)
+
+    def lexical(self, query: str, limit: int, reason: str = "code-aware BM25 over names, signatures, docstrings and bodies", seen=None) -> Ranked:
+        started = perf_counter()
+        return self._record("lexical", self.index.lexical(query, limit, self.language), reason, started, seen)
+
+    def fuse(self, lists: dict[str, Ranked]) -> Ranked:
+        started = perf_counter()
+        fused = reciprocal_rank_fusion(lists, settings.rrf_k)
+        return self._record("rrf", fused, f"reciprocal rank fusion (k={settings.rrf_k}) of {', '.join(lists)}", started)
+
+    def rerank(self, query: str, ranked: Ranked, pool: int) -> Ranked:
+        started = perf_counter()
+        candidates = ranked[:pool]
+        reranker = self.reranker or default_reranker()
+        scores = reranker.score(query, [self.index.texts[self.index.position[u]] for u, _ in candidates])
+        rescored = sorted(zip((u for u, _ in candidates), (float(x) for x in scores)), key=lambda item: -item[1])
+        if settings.rerank_fusion == "rrf":   # blend reranker order with first-stage order instead of replacing it
+            rescored = reciprocal_rank_fusion({"reranker": rescored, "first_stage": candidates}, settings.rrf_k)
+        return self._record("reranker", rescored, f"CrossEncoder rerank of top {len(candidates)} fused candidates on {getattr(reranker, 'device', 'cpu')}", started)
+
+
+def run_mode(pipeline: Pipeline, query: str, mode: RetrievalMode, top_k: int) -> Ranked:
+    limit = max(settings.retrieval_candidates, top_k)
+    if mode == RetrievalMode.SEMANTIC: return pipeline.semantic(query, limit)
+    if mode == RetrievalMode.LEXICAL: return pipeline.lexical(query, limit)
+    fused = pipeline.fuse({"lexical": pipeline.lexical(query, limit), "semantic": pipeline.semantic(query, limit)})
+    if mode == RetrievalMode.HYBRID: return fused
+    if mode == RetrievalMode.HYBRID_RERANK: return pipeline.rerank(query, fused, max(settings.rerank_candidates, top_k))
+    raise ValueError(f"retrieval mode {mode} is not available yet")
+
+
+def _evidence(components: dict[str, float]) -> list[str]:
+    labels = {"lexical": "lexical", "semantic": "semantic", "reranker": "reranker", "graph": "graph"}
+    return [label for key, label in labels.items() if key in components]
+
+
+def search(request: SearchRequest, embedder: Embedder | None = None, reranker: Reranker | None = None) -> SearchResponse:
     started = perf_counter()
     index = registry.get(request.repository_id, request.commit_sha)
-    embedder = embedder or default_embedder()
-    limit = max(settings.retrieval_candidates, request.top_k)
-    step_started = perf_counter()
-    if request.mode != RetrievalMode.SEMANTIC:
-        raise ValueError(f"retrieval mode {request.mode} is not available yet")
-    ranked = index.semantic(request.query, embedder, limit, request.language)
-    components = {uid: {"semantic": s} for uid, s in ranked}
-    ranks = {uid: {"semantic": i + 1} for i, (uid, _) in enumerate(ranked)}
-    evidence = {uid: ["semantic"] for uid, _ in ranked}
-    trace = [TraceStep(iteration=1, action="semantic_search", reason="single-pass semantic retrieval", candidates=len(ranked),
-                       new_candidates=len(ranked), duration_ms=round((perf_counter() - step_started) * 1000, 2))]
-    results, warnings = build_results(index, ranked, request.top_k, components, ranks, evidence)
+    pipeline = Pipeline(index, embedder or default_embedder(), reranker, request.language)
+    ranked = run_mode(pipeline, request.query, request.mode, request.top_k)
+    evidence = {uid: _evidence(c) for uid, c in pipeline.components.items()}
+    results, warnings = build_results(index, ranked, request.top_k, pipeline.components, pipeline.ranks, evidence)
     if not results: warnings.append("no matching code units")
     return SearchResponse(query=request.query, repository_id=index.repository_id, commit_sha=index.commit_sha, mode=request.mode,
-                          results=results, trace=trace, latency_ms=round((perf_counter() - started) * 1000, 2),
+                          results=results, trace=pipeline.trace, latency_ms=round((perf_counter() - started) * 1000, 2),
+                          iterations=1, tool_calls=pipeline.tool_calls, stop_reason="single_pass",
                           warnings=[*_coverage_warnings(index), *warnings], parse_coverage=index.coverage)

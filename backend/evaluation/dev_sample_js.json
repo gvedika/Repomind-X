@@ -1,0 +1,25 @@
+{
+  "description": "Development split for tuning retrieval modes on examples/sample_js_repo. Queries avoid the target symbol names. Never report these as held-out results.",
+  "split": "dev",
+  "repository": "examples/sample_js_repo",
+  "queries": [
+    {"id": "dev-01", "query": "compare two digests in constant time", "relevant": ["safeEqual"]},
+    {"id": "dev-02", "query": "derive a salted key from the user's secret before storing it", "relevant": ["hashPassword"]},
+    {"id": "dev-03", "query": "authenticate a user by email and issue a random token", "relevant": ["login"]},
+    {"id": "dev-04", "query": "delete sessions that are past their expiry time", "relevant": ["SessionManager.purgeExpired"]},
+    {"id": "dev-05", "query": "check whether a session is still active", "relevant": ["SessionManager.isValid"]},
+    {"id": "dev-06", "query": "look up an account by normalized email address", "relevant": ["findUserByEmail"]},
+    {"id": "dev-07", "query": "persist a new session record keyed by token", "relevant": ["saveSession"]},
+    {"id": "dev-08", "query": "run an async operation again after failures with growing delays", "relevant": ["withRetry"]},
+    {"id": "dev-09", "query": "split an array into fixed size groups", "relevant": ["chunk"]},
+    {"id": "dev-10", "query": "http handler that creates an order and charges the card", "relevant": ["router.post('/orders')"]},
+    {"id": "dev-11", "query": "reject order payloads without items or with a non positive total", "relevant": ["validateOrder"]},
+    {"id": "dev-12", "query": "call the payment gateway to create a charge", "relevant": ["chargeCard"]},
+    {"id": "dev-13", "query": "give money back for a previous charge", "relevant": ["refund"]},
+    {"id": "dev-14", "query": "render the shopping cart total", "relevant": ["CartSummary"]},
+    {"id": "dev-15", "query": "format cents as US dollars", "relevant": ["formatCurrency"]},
+    {"id": "dev-16", "query": "serialize a structured log line as JSON with a timestamp", "relevant": ["format"]},
+    {"id": "dev-17", "query": "fetch a single order by its id", "relevant": ["router.get('/orders/:id')"]},
+    {"id": "dev-18", "query": "list every stored session", "relevant": ["sessionStore.list"]}
+  ]
+}
