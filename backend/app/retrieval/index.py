@@ -7,6 +7,7 @@ import numpy as np
 from app.models.schemas import CodeUnit, ParseCoverage
 from app.retrieval.documents import document_text, retrieval_units
 from app.retrieval.embedding import Embedder
+from app.retrieval.graph import CodeGraph, build_code_graph
 from app.retrieval.lexical import BM25Index, tokenize, unit_tokens
 
 METADATA_DIR = ".repomind"
@@ -24,11 +25,18 @@ class CodeIndex:
     embedder_name: str | None = None
 
     def __post_init__(self):
-        self.units = [u for u in retrieval_units(self.units) if u.repository_id == self.repository_id and u.commit_sha == self.commit_sha]
+        self.all_units = [u for u in self.units if u.repository_id == self.repository_id and u.commit_sha == self.commit_sha]
+        self.units = retrieval_units(self.all_units)
+        self._graph = None
         self.texts = [document_text(u) for u in self.units]
         self.by_id = {u.unit_id: u for u in self.units}
         self.position = {u.unit_id: i for i, u in enumerate(self.units)}
         self._lexical = None
+
+    @property
+    def graph(self) -> CodeGraph:
+        if self._graph is None: self._graph = build_code_graph(self.all_units)
+        return self._graph
 
     # -- persistence ---------------------------------------------------------------------------------------
     @classmethod

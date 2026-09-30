@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     rerank_candidates:int=30
     rrf_k:int=60
     rerank_fusion:str="rrf"
+    adaptive_max_iterations:int=4
+    adaptive_max_candidates:int=100
+    adaptive_timeout_seconds:float=10.0
+    graph_max_hops:int=2
+    graph_fanout:int=8
     mlflow_tracking_uri:str|None=None
     enable_llm_reasoning:bool=True
     mcp_server_command:str="python -m app.mcp_server.server"

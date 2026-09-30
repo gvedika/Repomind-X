@@ -7,6 +7,7 @@ from pathlib import Path
 from time import perf_counter
 from app.core.config import settings
 from app.models.schemas import RetrievalMode, SearchRequest, SearchResponse, SearchResult, SourceStatus, TraceStep
+from app.retrieval.adaptive import adaptive_search
 from app.retrieval.embedding import Embedder, default_embedder
 from app.retrieval.index import METADATA_DIR, CodeIndex
 from app.retrieval.rerank import Reranker, default_reranker
@@ -58,7 +59,8 @@ registry = IndexRegistry()
 
 
 def build_results(index: CodeIndex, ranked: list[tuple[str, float]], top_k: int, components: dict[str, dict[str, float]] | None = None,
-                  ranks: dict[str, dict[str, int]] | None = None, evidence: dict[str, list[str]] | None = None) -> tuple[list[SearchResult], list[str]]:
+                  ranks: dict[str, dict[str, int]] | None = None, evidence: dict[str, list[str]] | None = None,
+                  relationships: dict[str, list[dict]] | None = None) -> tuple[list[SearchResult], list[str]]:
     """Verify each candidate's source before returning it; invalid/missing units are dropped with a warning."""
     results, warnings = [], []
     for unit_id, score in ranked:
@@ -75,6 +77,7 @@ def build_results(index: CodeIndex, ranked: list[tuple[str, float]], top_k: int,
             excerpt_truncated=check.truncated, source_status=check.status, score=round(float(score), 6),
             score_components={k: round(v, 6) for k, v in (components or {}).get(unit_id, {}).items()},
             component_ranks=(ranks or {}).get(unit_id, {}), evidence=(evidence or {}).get(unit_id, []),
+            relationships=(relationships or {}).get(unit_id, [])[:8],
             warnings=[*check.warnings, *unit.parser_uncertainty]))
     return results, warnings
 
@@ -126,9 +129,9 @@ class Pipeline:
                                     duration_ms=round((perf_counter() - started) * 1000, 2)))
         return ranked
 
-    def semantic(self, query: str, limit: int, reason: str = "dense BGE retrieval", seen=None) -> Ranked:
+    def semantic(self, query: str, limit: int, reason: str = "dense BGE retrieval", seen=None, name: str = "semantic") -> Ranked:
         started = perf_counter()
-        return self._record("semantic", self.index.semantic(query, self.embedder, limit, self.language), reason, started, seen)
+        return self._record(name, self.index.semantic(query, self.embedder, limit, self.language), reason, started, seen)
 
     def lexical(self, query: str, limit: int, reason: str = "code-aware BM25 over names, signatures, docstrings and bodies", seen=None) -> Ranked:
         started = perf_counter()
@@ -154,26 +157,39 @@ def run_mode(pipeline: Pipeline, query: str, mode: RetrievalMode, top_k: int) ->
     limit = max(settings.retrieval_candidates, top_k)
     if mode == RetrievalMode.SEMANTIC: return pipeline.semantic(query, limit)
     if mode == RetrievalMode.LEXICAL: return pipeline.lexical(query, limit)
+    if mode == RetrievalMode.ADAPTIVE:
+        raise ValueError("adaptive mode is run through adaptive_search")
     fused = pipeline.fuse({"lexical": pipeline.lexical(query, limit), "semantic": pipeline.semantic(query, limit)})
     if mode == RetrievalMode.HYBRID: return fused
     if mode == RetrievalMode.HYBRID_RERANK: return pipeline.rerank(query, fused, max(settings.rerank_candidates, top_k))
-    raise ValueError(f"retrieval mode {mode} is not available yet")
+    raise ValueError(f"unsupported retrieval mode {mode}")
 
 
 def _evidence(components: dict[str, float]) -> list[str]:
-    labels = {"lexical": "lexical", "semantic": "semantic", "reranker": "reranker", "graph": "graph"}
-    return [label for key, label in labels.items() if key in components]
+    labels = {"lexical": "lexical", "semantic": "semantic", "semantic_rewrite": "semantic", "reranker": "reranker",
+              "graph": "graph", "structural": "graph"}
+    return list(dict.fromkeys(label for key, label in labels.items() if key in components))
 
 
 def search(request: SearchRequest, embedder: Embedder | None = None, reranker: Reranker | None = None) -> SearchResponse:
     started = perf_counter()
     index = registry.get(request.repository_id, request.commit_sha)
     pipeline = Pipeline(index, embedder or default_embedder(), reranker, request.language)
-    ranked = run_mode(pipeline, request.query, request.mode, request.top_k)
+    relationships, iterations, stop_reason, notes = {}, 1, "single_pass", []
+    if request.mode == RetrievalMode.ADAPTIVE:
+        outcome = adaptive_search(pipeline, request.query, request.top_k)
+        ranked, relationships, iterations, stop_reason = outcome.ranked, outcome.relationships, outcome.iterations, outcome.stop_reason
+        if outcome.structural:
+            notes.append("call order is syntactic source order within each unit; it does not prove runtime execution order")
+    else:
+        ranked = run_mode(pipeline, request.query, request.mode, request.top_k)
+    for uid, items in list(relationships.items()):
+        unresolved = index.graph.unresolved.get(uid, [])
+        if unresolved: relationships[uid] = [*items, {"type": "UNRESOLVED_CALLS", "count": len(unresolved), "examples": unresolved[:3]}]
     evidence = {uid: _evidence(c) for uid, c in pipeline.components.items()}
-    results, warnings = build_results(index, ranked, request.top_k, pipeline.components, pipeline.ranks, evidence)
+    results, warnings = build_results(index, ranked, request.top_k, pipeline.components, pipeline.ranks, evidence, relationships)
     if not results: warnings.append("no matching code units")
     return SearchResponse(query=request.query, repository_id=index.repository_id, commit_sha=index.commit_sha, mode=request.mode,
                           results=results, trace=pipeline.trace, latency_ms=round((perf_counter() - started) * 1000, 2),
-                          iterations=1, tool_calls=pipeline.tool_calls, stop_reason="single_pass",
-                          warnings=[*_coverage_warnings(index), *warnings], parse_coverage=index.coverage)
+                          iterations=iterations, tool_calls=pipeline.tool_calls, stop_reason=stop_reason,
+                          warnings=[*_coverage_warnings(index), *notes, *warnings], parse_coverage=index.coverage)

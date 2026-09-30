@@ -40,6 +40,7 @@ def build_graph(repository_id, analyses, backend=None):
     repo_id=f"repo:{repository_id}"
     graph.add_node(GraphNode(id=repo_id,kind=NodeKind.REPOSITORY,name=repository_id))
     function_ids={}
+    path_function_ids=set()
     for analysis in analyses:
         file_id=f"file:{repository_id}:{analysis.path}"
         graph.add_node(GraphNode(id=file_id,kind=NodeKind.FILE,name=analysis.path,metadata={"path":analysis.path}))
@@ -58,6 +59,7 @@ def build_graph(repository_id, analyses, backend=None):
         for fun in analysis.functions:
             fun_id=f"function:{repository_id}:{analysis.path}:{fun.qualified_name}"
             function_ids[fun.qualified_name]=fun_id
+            path_function_ids.add(fun_id)
             graph.add_node(GraphNode(id=fun_id,kind=NodeKind.FUNCTION,name=fun.qualified_name,metadata=fun.model_dump()))
             graph.add_edge(file_id,fun_id,"DEFINES")
         for endpoint in analysis.endpoints:
@@ -72,12 +74,14 @@ def build_graph(repository_id, analyses, backend=None):
             cid=f"framework:{repository_id}:{analysis.path}:{component["name"]}"
             graph.add_node(GraphNode(id=cid,kind=NodeKind.FRAMEWORK_COMPONENT,name=component["name"],metadata=component))
             graph.add_edge(file_id,cid,"USES")
-    # Second pass resolves calls once all functions exist.
-    for analysis in analyses:
-        for fun in analysis.functions:
-            source=function_ids.get(fun.qualified_name)
-            if not source: continue
-            for call in fun.calls:
-                matches=[fid for name,fid in function_ids.items() if name==call or name.endswith("."+call) or name.split(".")[-1]==call.split(".")[-1]]
-                if matches: graph.add_edge(source,matches[0],"CALLS")
+    # Second pass: conservative CALLS edges resolved from canonical units; unresolved calls are not guessed.
+    from app.retrieval.graph import build_code_graph
+    units=[u for analysis in analyses for u in analysis.units]
+    node_for={}
+    for u in units:
+        fid=f"function:{repository_id}:{u.file_path}:{u.qualified_name}"
+        if fid in path_function_ids: node_for[u.unit_id]=fid
+    for edge in build_code_graph(units).edges:
+        if edge.kind=="CALLS" and edge.source in node_for and edge.target in node_for:
+            graph.add_edge(node_for[edge.source],node_for[edge.target],"CALLS",resolution=edge.resolution,line=edge.line)
     return graph
