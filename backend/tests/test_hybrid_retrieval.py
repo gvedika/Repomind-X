@@ -100,3 +100,10 @@ def test_dev_labels_resolve_to_units(repo):
     dataset = json.loads((Path(__file__).resolve().parents[1] / "evaluation" / "dev_sample_js.json").read_text(encoding="utf-8"))
     report = evaluate(summary.id, dataset, [RetrievalMode.LEXICAL], embedder=embedder)
     assert report["queries"] == 18 and report["split"] == "dev" and 0 <= report["modes"]["lexical"]["mrr@10"] <= 1
+
+
+def test_rrf_exact_ties_prefer_semantic_rank_not_unit_id():
+    # "zzz" is #1 lexical/#2 semantic and "aaa" the reverse: identical RRF scores and best ranks.
+    fused = reciprocal_rank_fusion({"lexical": [("aaa", 3.5), ("zzz", 3.4)], "semantic": [("zzz", 0.59), ("aaa", 0.53)]}, k=60)
+    assert [u for u, _ in fused] == ["zzz", "aaa"]
+    assert fused[0][1] == pytest.approx(fused[1][1])

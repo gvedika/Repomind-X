@@ -10,7 +10,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from app.models.schemas import CodeUnit, UnitType
 
-JS_SUFFIXES = ("", ".js", ".mjs", ".cjs", ".jsx", "/index.js", "/index.mjs", "/index.jsx")
+JS_SUFFIXES = ("", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts", "/index.js", "/index.mjs", "/index.jsx", "/index.ts", "/index.tsx")
 
 
 @dataclass(frozen=True)
@@ -74,10 +74,14 @@ def _file_id(unit_by_path: dict[str, CodeUnit], path: str) -> str | None:
 
 def resolve_module(importer: str, spec: str, files: set[str], language: str) -> str | None:
     """Map an import specifier to an indexed repository file, or None for external/unknown modules."""
-    if language == "JavaScript":
+    if language in {"JavaScript", "TypeScript"}:
         if not spec.startswith("."): return None
         base = posixpath.normpath(posixpath.join(posixpath.dirname(importer), spec))
-        return next((base + s for s in JS_SUFFIXES if base + s in files), None)
+        found = next((base + s for s in JS_SUFFIXES if base + s in files), None)
+        if found is None and language == "TypeScript":   # ESM TypeScript imports "./x.js" for the source file x.ts
+            stem = base.rsplit(".", 1)[0] if base.endswith((".js", ".jsx", ".mjs", ".cjs")) else None
+            found = next((stem + s for s in (".ts", ".tsx", ".mts", ".cts") if stem and stem + s in files), None)
+        return found
     if language == "Python":
         if spec in {".", ""}: return None
         candidate = spec.replace(".", "/")

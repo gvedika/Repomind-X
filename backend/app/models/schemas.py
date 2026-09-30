@@ -54,6 +54,7 @@ class UnitType(StrEnum):
     FUNCTION = "function"
     METHOD = "method"
     CLASS = "class"
+    TYPE = "type"
     FILE = "file"
 
 

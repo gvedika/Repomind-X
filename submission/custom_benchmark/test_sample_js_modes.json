@@ -3,6 +3,7 @@
   "queries": 14,
   "units": 21,
   "k": 10,
+  "latency_note": "wall-clock per search on CPU after one untimed warm-up query per mode",
   "modes": {
     "semantic": {
       "mrr@10": 0.869,
@@ -10,7 +11,12 @@
       "recall@5": 1.0,
       "recall@10": 1.0,
       "ndcg@10": 0.9022,
-      "latency_ms_p50": 39.23,
+      "precision@10": 0.1,
+      "latency_ms_p50": 41.93,
+      "latency_ms_p95": 59.56,
+      "tool_calls_mean": 1.0,
+      "iterations_mean": 1.0,
+      "span_validity": 1.0,
       "misses_at_1": [
         "test-03",
         "test-12",
@@ -23,7 +29,12 @@
       "recall@5": 0.8571,
       "recall@10": 0.9286,
       "ndcg@10": 0.8205,
-      "latency_ms_p50": 2.76,
+      "precision@10": 0.0929,
+      "latency_ms_p50": 2.55,
+      "latency_ms_p95": 5.15,
+      "tool_calls_mean": 1.0,
+      "iterations_mean": 1.0,
+      "span_validity": 1.0,
       "misses_at_1": [
         "test-03",
         "test-04",
@@ -32,30 +43,44 @@
       ]
     },
     "hybrid": {
-      "mrr@10": 0.8155,
-      "recall@1": 0.7143,
+      "mrr@10": 0.7798,
+      "recall@1": 0.6429,
       "recall@5": 1.0,
       "recall@10": 1.0,
-      "ndcg@10": 0.8615,
-      "latency_ms_p50": 41.75,
+      "ndcg@10": 0.8352,
+      "precision@10": 0.1,
+      "latency_ms_p50": 39.75,
+      "latency_ms_p95": 42.89,
+      "tool_calls_mean": 3.0,
+      "iterations_mean": 1.0,
+      "span_validity": 1.0,
       "misses_at_1": [
         "test-03",
         "test-04",
         "test-06",
+        "test-12",
         "test-13"
       ]
     },
     "hybrid_rerank": {
-      "mrr@10": 0.8512,
-      "recall@1": 0.7857,
+      "mrr@10": 0.744,
+      "recall@1": 0.5714,
       "recall@5": 0.9286,
       "recall@10": 1.0,
-      "ndcg@10": 0.887,
-      "latency_ms_p50": 396.21,
+      "ndcg@10": 0.8079,
+      "precision@10": 0.1,
+      "latency_ms_p50": 358.63,
+      "latency_ms_p95": 396.25,
+      "tool_calls_mean": 4.0,
+      "iterations_mean": 1.0,
+      "span_validity": 1.0,
       "misses_at_1": [
         "test-03",
         "test-04",
-        "test-06"
+        "test-06",
+        "test-07",
+        "test-09",
+        "test-14"
       ]
     },
     "adaptive": {
@@ -64,12 +89,25 @@
       "recall@5": 1.0,
       "recall@10": 1.0,
       "ndcg@10": 0.8923,
-      "latency_ms_p50": 44.79,
+      "precision@10": 0.1,
+      "latency_ms_p50": 45.77,
+      "latency_ms_p95": 77.59,
+      "tool_calls_mean": 4.0,
+      "iterations_mean": 1.5714,
+      "span_validity": 1.0,
       "misses_at_1": [
         "test-03",
         "test-04",
         "test-06"
       ]
     }
+  },
+  "index": {
+    "retrievable_units": 21,
+    "all_units": 28,
+    "index_bytes": 96103,
+    "embedding_model": "st:Alibaba-NLP/gte-modernbert-base:da39a3ee",
+    "indexing_seconds": 9.62,
+    "indexing_note": "includes snapshot copy, parsing, embedding model load and embedding on CPU"
   }
 }

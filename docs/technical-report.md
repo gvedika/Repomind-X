@@ -13,7 +13,8 @@ product. Generated prose is optional and always downstream of the ranked evidenc
    uncommitted changes. Repository IDs derive from the source identity, and unit IDs from
    `(repository, commit, path, type, qualified name, ordinal)`.
 2. **Parsing.** Language adapters implement one interface and emit canonical `CodeUnit` records: the Tree-sitter
-   JavaScript adapter and the `ast`-based Python adapter. Parse failures are recorded per file (`ok`, `partial`,
+   JavaScript and TypeScript/TSX adapters (TypeScript adds interfaces, type aliases, enums, namespaces and abstract
+   classes) and the `ast`-based Python adapter. Parse failures are recorded per file (`ok`, `partial`,
    `failed` or `skipped`, with reasons) and never abort a repository. Malformed JavaScript is re-parsed per top-level chunk.
 3. **Documents.** Each function, method or class document contains its qualified name, signature, docstring, path and
    the **implementation body**, bounded to 2,400 characters for the encoder.
@@ -22,7 +23,8 @@ product. Generated prose is optional and always downstream of the ranked evidenc
      fields ×3, signature, docstring and path ×2, body ×1).
    - *Semantic*: `Alibaba-NLP/gte-modernbert-base` on CPU (no query instruction). `bge-small-en-v1.5` was the earlier
      baseline.
-   - *Hybrid*: reciprocal rank fusion (k = 60) of both, deduplicated by unit ID. This is the default.
+   - *Hybrid*: reciprocal rank fusion (k = 60) of both, deduplicated by unit ID; exact ties go to the better semantic
+     rank, chosen on the dev split. This is the default.
    - *Hybrid + rerank*: MS MARCO MiniLM CrossEncoder over the top 30, blended with the first stage by RRF. Opt-in.
    - *Adaptive*: a bounded rule-based loop over allowlisted actions (below).
 5. **Verification.** Before a result is returned, its repository and commit, path containment, file existence, span
@@ -54,15 +56,21 @@ preprocessing, and MTEB generated the result. With `gte-modernbert-base`: nDCG@1
 `submission/mteb_results/`. Disclosure: the default model was switched after seeing both models' scores on this test
 split. It was a single candidate, and no other models or settings were tried on the test split.
 
-**Custom (aligned).** Every mode ranks the same canonical units of `examples/sample_js_repo`, which has 21 retrievable
-units. Defaults were chosen on an 18-query dev split: semantic 1.00 MRR@10, hybrid 0.97, lexical 0.81, rerank 0.86. The
-held-out 14-query test split, with gte-modernbert-base: semantic 0.869, adaptive 0.857, hybrid+rerank 0.851,
-hybrid 0.816, lexical 0.786. The bge-small baseline scored 0.780 / 0.854 / 0.744 / 0.746 / 0.786 in the same order.
-At this size the figures are indicative only.
+**Custom (aligned).** Every mode ranks the same canonical units of the fixtures (21 JavaScript units; 18 TypeScript
+units). Defaults were chosen on an 18-query JavaScript dev split, where hybrid scores 1.000 MRR@10 and semantic 1.000.
+Held-out test splits, with gte-modernbert-base:
+
+| MRR@10 | semantic | lexical | hybrid | hybrid+rerank | adaptive |
+|---|---|---|---|---|---|
+| JavaScript (14 queries) | 0.869 | 0.786 | 0.780 | 0.744 | 0.857 |
+| TypeScript (12 queries) | 0.958 | 0.944 | 1.000 | 1.000 | 1.000 |
+
+Span validity is 1.0 for every mode. Hybrid and adaptive median latency is about 40–46 ms (p95 ≤ 78 ms) on CPU. At
+this size the figures are indicative only.
 
 ## Limitations
 
-The analysis is static: call order is syntactic, not runtime order. TypeScript and other languages are not parsed.
+The analysis is static: call order is syntactic, not runtime order. Languages beyond JavaScript, TypeScript and Python are not parsed.
 Import binding names are not tracked. The reranker is not code-specific. Cross-version symbol matching is not
 implemented. The legacy Neo4j/LangGraph/MCP agent path (`/api/query`) and the Docker Compose stack were not run in the
 build environment.

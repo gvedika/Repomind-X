@@ -100,15 +100,27 @@ def _coverage_warnings(index: CodeIndex) -> list[str]:
 Ranked = list[tuple[str, float]]
 
 
+TIE_BREAK_ORDER = ("semantic", "reranker", "graph", "lexical")   # semantic was the strongest single signal on the dev split
+
+
 def reciprocal_rank_fusion(lists: dict[str, Ranked], k: int) -> Ranked:
-    """RRF over component rankings; each unit ID appears once, ties broken by best component rank then ID."""
+    """RRF over component rankings; each unit ID appears once.
+
+    Exact score ties (e.g. #1 in one list and #2 in the other, both ways) are broken by best component rank, then
+    by rank in the preferred component (TIE_BREAK_ORDER), and only last by unit ID, so the order never depends on
+    commit-hashed identifiers."""
     fused: dict[str, float] = {}
     best: dict[str, int] = {}
-    for ranked in lists.values():
+    ranks: dict[str, dict[str, int]] = {}
+    for name, ranked in lists.items():
         for rank, (unit_id, _) in enumerate(ranked, 1):
             fused[unit_id] = fused.get(unit_id, 0.0) + 1.0 / (k + rank)
             best[unit_id] = min(best.get(unit_id, rank), rank)
-    return sorted(fused.items(), key=lambda item: (-item[1], best[item[0]], item[0]))
+            ranks.setdefault(unit_id, {})[name] = rank
+    preferred = [n for n in TIE_BREAK_ORDER if n in lists] + [n for n in lists if n not in TIE_BREAK_ORDER]
+    missing = 10**9
+    return sorted(fused.items(), key=lambda item: (-round(item[1], 12), best[item[0]],
+                                                   *[ranks[item[0]].get(n, missing) for n in preferred], item[0]))
 
 
 @dataclass

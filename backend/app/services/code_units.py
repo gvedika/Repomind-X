@@ -111,8 +111,13 @@ def analyze_repository(root: Path, analyzers: Sequence[LanguageAnalyzer], contex
             analysis = analyzer.analyze_file(path, relative, context)
         except Exception as exc:  # an adapter bug must not cancel the rest of the repository
             analysis = FileAnalysis(path=relative, language=analyzer.language, parse_status=ParseStatus.FAILED, parse_error=f"{type(exc).__name__}: {exc}")
-        analyses.append(analysis)
         status = analysis.parse_status
+        if status == ParseStatus.SKIPPED:   # adapter-level skip (binary content, declaration-only files, ...)
+            coverage.files_skipped += 1
+            reason = (analysis.parse_error or "skipped").split(" (")[0].replace(" ", "_")
+            coverage.skipped_reasons[reason] = coverage.skipped_reasons.get(reason, 0) + 1
+            continue
+        analyses.append(analysis)
         if status == ParseStatus.OK: coverage.files_parsed += 1
         elif status == ParseStatus.PARTIAL: coverage.files_partial += 1
         else: coverage.files_failed += 1

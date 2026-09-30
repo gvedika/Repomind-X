@@ -59,8 +59,8 @@ def main():
               f"device={m['encoder']['device']} elapsed={m['elapsed_seconds']}s\n")
     else:
         print("  not found; run python -m app.evaluation.coir_apps\n")
-    print("6) Limitations: static analysis only (syntactic call order, dynamic dispatch unresolved); JavaScript/Python only "
-          "(no TypeScript); import bindings not tracked; encoder chosen after an official-test comparison (see README).")
+    print("6) Limitations: static analysis only (syntactic call order, dynamic dispatch unresolved); JavaScript, TypeScript and Python "
+          "only; import bindings not tracked; encoder chosen after an official-test comparison (see README).")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,7 @@
-"""Tree-sitter JavaScript adapter (.js/.jsx/.mjs/.cjs) behind the canonical LanguageAnalyzer interface.
+"""Tree-sitter JavaScript (.js/.jsx/.mjs/.cjs) and TypeScript (.ts/.tsx/.mts/.cts) adapters behind the canonical
+LanguageAnalyzer interface. TypeScript reuses the JavaScript walker plus TS-only declarations (interfaces, type
+aliases, enums, namespaces, abstract classes); signature-only declarations (overloads, abstract methods) have no
+implementation and are not emitted as units.
 
 Only syntactic facts are extracted. Call-site order is source order inside a unit, which is not proof of
 runtime execution order; calls through computed/dynamic expressions are reported as parser uncertainty."""
@@ -13,17 +16,22 @@ from app.services.code_units import AnalysisContext, assign_unit_ids, excerpt, s
 FUNCTION_NODES = {"function_declaration", "generator_function_declaration", "function_expression", "function",
                   "generator_function", "arrow_function", "method_definition"}
 FUNCTION_VALUES = FUNCTION_NODES - {"function_declaration", "generator_function_declaration", "method_definition"}
-CLASS_NODES = {"class_declaration", "class"}
+CLASS_NODES = {"class_declaration", "class", "abstract_class_declaration"}
+TYPE_NODES = {"interface_declaration", "type_alias_declaration", "enum_declaration"}
 ROUTE_METHODS = {"get", "post", "put", "patch", "delete", "all", "use", "route", "options", "head"}
 FILE_SOURCE_LIMIT = 20_000
 SIGNATURE_LIMIT = 300
 
 
-@lru_cache(maxsize=1)
-def _parser():
-    import tree_sitter_javascript
+@lru_cache(maxsize=3)
+def _parser(dialect: str = "javascript"):
     from tree_sitter import Language, Parser
-    return Parser(Language(tree_sitter_javascript.language()))
+    if dialect == "javascript":
+        import tree_sitter_javascript
+        return Parser(Language(tree_sitter_javascript.language()))
+    import tree_sitter_typescript
+    grammar = tree_sitter_typescript.language_tsx() if dialect == "tsx" else tree_sitter_typescript.language_typescript()
+    return Parser(Language(grammar))
 
 
 def _text(node) -> str:
@@ -64,8 +72,8 @@ def _jsdoc(node) -> str | None:
 
 
 class _FileWalker:
-    def __init__(self, relative_path: str, lines: list[str]):
-        self.path, self.lines = relative_path, lines
+    def __init__(self, relative_path: str, lines: list[str], language: str = "JavaScript"):
+        self.path, self.lines, self.language = relative_path, lines, language
         self.units: list[CodeUnit] = []
         self.imports: list[str] = []
         self.exports: set[str] = set()
@@ -83,7 +91,7 @@ class _FileWalker:
         signature = signature.rstrip("{").rstrip().removesuffix("=>").rstrip()[:SIGNATURE_LIMIT] or None
         notes = list(uncertainty or [])
         if fn_node.has_error: notes.append("syntax errors inside unit")
-        unit = CodeUnit(unit_id="", repository_id="", commit_sha="", language="JavaScript", unit_type=unit_type, name=name,
+        unit = CodeUnit(unit_id="", repository_id="", commit_sha="", language=self.language, unit_type=unit_type, name=name,
                         qualified_name=qualified, signature=signature, file_path=self.path, line_start=start, line_end=end,
                         source=excerpt(self.lines, start, end), docstring=_jsdoc(doc_node or span_node), imports=[],
                         parent=parent, exports=[exported] if exported else [], parser_uncertainty=notes)
@@ -107,6 +115,14 @@ class _FileWalker:
             span = node.parent if node.parent is not None and node.parent.type == "export_statement" else node
             pending.append(self._named_function(span, node, name, scope, exported=self._export_name(span, name)))
             self.walk(_field(node, "body"), self._q(scope, name), pending)
+            return pending
+        if t in TYPE_NODES and _field(node, "name") is not None:
+            name = _text(_field(node, "name"))
+            span = node.parent if node.parent is not None and node.parent.type == "export_statement" else node
+            pending.append(self.add_unit(span, node, name, self._q(scope, name), UnitType.TYPE, parent=scope, exported=self._export_name(span, name)))
+            return pending
+        if t == "internal_module" and _field(node, "name") is not None:   # TypeScript namespace
+            self.walk(_field(node, "body"), self._q(scope, _text(_field(node, "name"))), pending)
             return pending
         if t in CLASS_NODES and _field(node, "name") is not None:
             self._class(node, _text(_field(node, "name")), node.parent if node.parent is not None and node.parent.type == "export_statement" else node, scope, pending)
@@ -156,7 +172,7 @@ class _FileWalker:
                 pending.append(self._named_function(member, member, method, qualified, unit_type=UnitType.METHOD, uncertainty=note))
                 self.walk(_field(member, "body"), self._q(qualified, method), pending)
             elif member.type in {"field_definition", "public_field_definition"}:
-                prop, value = _field(member, "property"), _field(member, "value")
+                prop, value = _field(member, "property") or _field(member, "name"), _field(member, "value")
                 if prop is not None and value is not None and value.type in FUNCTION_VALUES:
                     pending.append(self._named_function(member, value, _text(prop), qualified, doc_node=member, unit_type=UnitType.METHOD))
                     self.walk(_field(value, "body"), self._q(qualified, _text(prop)), pending)
@@ -291,6 +307,9 @@ class JavaScriptAnalyzer:
     language = "JavaScript"
     extensions = frozenset({".js", ".jsx", ".mjs", ".cjs"})
 
+    def dialect(self, relative_path: str) -> str:
+        return "javascript"
+
     def analyze_file(self, absolute_path: Path, relative_path: str, context: AnalysisContext | None = None) -> FileAnalysis:
         context = context or AnalysisContext()
         result = FileAnalysis(path=relative_path, language=self.language)
@@ -303,9 +322,10 @@ class JavaScriptAnalyzer:
             result.parse_status, result.parse_error = ParseStatus.SKIPPED, "binary content"; return result
         text = text.replace("\r\n", "\n").replace("\r", "\n")   # tree-sitter rows count only \n
         lines = split_lines(text)
-        tree = _parser().parse(text.encode("utf-8"))
-        walker = _FileWalker(relative_path, lines)
-        pending = walker.walk(tree.root_node) if not tree.root_node.has_error else _recover(text, walker)
+        parser = _parser(self.dialect(relative_path))
+        tree = parser.parse(text.encode("utf-8"))
+        walker = _FileWalker(relative_path, lines, self.language)
+        pending = walker.walk(tree.root_node) if not tree.root_node.has_error else _recover(text, walker, parser)
         walker.imports = sorted(set(walker.imports))
         for unit, fn_node in pending:
             sites, unresolved = walker.calls(fn_node)
@@ -336,10 +356,23 @@ class JavaScriptAnalyzer:
         return result
 
 
-_TOP_LEVEL = re.compile(r"^(?:export\s+|async\s+)*(?:function\b|class\b|const\b|let\b|var\b|module\.exports\b|exports\.)")
+class TypeScriptAnalyzer(JavaScriptAnalyzer):
+    language = "TypeScript"
+    extensions = frozenset({".ts", ".tsx", ".mts", ".cts"})
+
+    def dialect(self, relative_path: str) -> str:
+        return "tsx" if relative_path.lower().endswith(".tsx") else "typescript"
+
+    def analyze_file(self, absolute_path: Path, relative_path: str, context: AnalysisContext | None = None) -> FileAnalysis:
+        if relative_path.lower().endswith(".d.ts"):   # ambient declarations: types only, no implementations
+            return FileAnalysis(path=relative_path, language=self.language, parse_status=ParseStatus.SKIPPED, parse_error="declaration file (.d.ts)")
+        return super().analyze_file(absolute_path, relative_path, context)
 
 
-def _recover(text: str, walker: "_FileWalker") -> list:
+_TOP_LEVEL = re.compile(r"^(?:export\s+|async\s+|declare\s+|default\s+|abstract\s+)*(?:function\b|class\b|const\b|let\b|var\b|interface\b|type\b|enum\b|namespace\b|module\.exports\b|exports\.)")
+
+
+def _recover(text: str, walker: "_FileWalker", parser=None) -> list:
     """Error recovery: re-parse each top-level declaration chunk on its own, so one syntax error does not hide
     later valid definitions. Chunks are padded with newlines so tree-sitter rows stay file-relative."""
     lines = text.split("\n")
@@ -348,7 +381,7 @@ def _recover(text: str, walker: "_FileWalker") -> list:
     pending = []
     for begin, end in zip(starts, [*starts[1:], len(lines)]):
         chunk = "\n" * begin + "\n".join(lines[begin:end])
-        walker.walk(_parser().parse(chunk.encode("utf-8")).root_node, None, pending)
+        walker.walk((parser or _parser()).parse(chunk.encode("utf-8")).root_node, None, pending)
     return pending
 
 

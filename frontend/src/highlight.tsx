@@ -1,8 +1,8 @@
 import React from "react";
 
-// Minimal, dependency-free highlighter for JavaScript and Python snippets.
+// Minimal, dependency-free highlighter for JavaScript/TypeScript and Python snippets.
 // Output is React text nodes inside spans (never innerHTML), so indexed source cannot inject markup.
-const JS_KEYWORDS = new Set("async await break case catch class const continue debugger default delete do else export extends false finally for from function if import in instanceof let new null of return static super switch this throw true try typeof undefined var void while with yield".split(" "));
+const JS_KEYWORDS = new Set("async await break case catch class const continue debugger default delete do else export extends false finally for from function if import in instanceof let new null of return static super switch this throw true try typeof undefined var void while with yield abstract as declare enum implements interface keyof namespace private protected public readonly type".split(" "));
 const PY_KEYWORDS = new Set("and as assert async await break class continue def del elif else except False finally for from global if import in is lambda None nonlocal not or pass raise return self True try while with yield".split(" "));
 
 const JS_TOKEN = /(\/\/.*$)|(\/\*.*?(?:\*\/|$))|("(?:\\.|[^"\\])*"?|'(?:\\.|[^'\\])*'?|`(?:\\.|[^`\\])*`?)|(\b\d[\d_]*(?:\.\d+)?\b)|([A-Za-z_$][\w$]*)/g;

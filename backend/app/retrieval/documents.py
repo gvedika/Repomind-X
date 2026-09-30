@@ -2,7 +2,7 @@
 from __future__ import annotations
 from app.models.schemas import CodeUnit, UnitType
 
-RETRIEVABLE_TYPES = {UnitType.FUNCTION, UnitType.METHOD, UnitType.CLASS}
+RETRIEVABLE_TYPES = {UnitType.FUNCTION, UnitType.METHOD, UnitType.CLASS, UnitType.TYPE}
 BODY_CHARS = 2400
 
 

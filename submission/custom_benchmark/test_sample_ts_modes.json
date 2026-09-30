@@ -1,43 +1,40 @@
 {
-  "split": "dev",
-  "queries": 18,
-  "units": 21,
+  "split": "test",
+  "queries": 12,
+  "units": 18,
   "k": 10,
   "latency_note": "wall-clock per search on CPU after one untimed warm-up query per mode",
   "modes": {
     "semantic": {
-      "mrr@10": 1.0,
-      "recall@1": 1.0,
+      "mrr@10": 0.9583,
+      "recall@1": 0.9167,
       "recall@5": 1.0,
       "recall@10": 1.0,
-      "ndcg@10": 1.0,
+      "ndcg@10": 0.9692,
       "precision@10": 0.1,
-      "latency_ms_p50": 40.34,
-      "latency_ms_p95": 52.98,
-      "tool_calls_mean": 1.0,
-      "iterations_mean": 1.0,
-      "span_validity": 1.0,
-      "misses_at_1": []
-    },
-    "lexical": {
-      "mrr@10": 0.8148,
-      "recall@1": 0.6667,
-      "recall@5": 1.0,
-      "recall@10": 1.0,
-      "ndcg@10": 0.8624,
-      "precision@10": 0.1,
-      "latency_ms_p50": 2.58,
-      "latency_ms_p95": 4.98,
+      "latency_ms_p50": 40.7,
+      "latency_ms_p95": 45.04,
       "tool_calls_mean": 1.0,
       "iterations_mean": 1.0,
       "span_validity": 1.0,
       "misses_at_1": [
-        "dev-05",
-        "dev-06",
-        "dev-07",
-        "dev-12",
-        "dev-13",
-        "dev-16"
+        "ts-12"
+      ]
+    },
+    "lexical": {
+      "mrr@10": 0.9444,
+      "recall@1": 0.9167,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "ndcg@10": 0.9583,
+      "precision@10": 0.1,
+      "latency_ms_p50": 3.72,
+      "latency_ms_p95": 5.18,
+      "tool_calls_mean": 1.0,
+      "iterations_mean": 1.0,
+      "span_validity": 1.0,
+      "misses_at_1": [
+        "ts-09"
       ]
     },
     "hybrid": {
@@ -47,55 +44,48 @@
       "recall@10": 1.0,
       "ndcg@10": 1.0,
       "precision@10": 0.1,
-      "latency_ms_p50": 41.82,
-      "latency_ms_p95": 47.44,
+      "latency_ms_p50": 40.72,
+      "latency_ms_p95": 65.13,
       "tool_calls_mean": 3.0,
       "iterations_mean": 1.0,
       "span_validity": 1.0,
       "misses_at_1": []
     },
     "hybrid_rerank": {
-      "mrr@10": 0.8889,
-      "recall@1": 0.7778,
+      "mrr@10": 1.0,
+      "recall@1": 1.0,
       "recall@5": 1.0,
       "recall@10": 1.0,
-      "ndcg@10": 0.918,
+      "ndcg@10": 1.0,
       "precision@10": 0.1,
-      "latency_ms_p50": 402.68,
-      "latency_ms_p95": 432.47,
+      "latency_ms_p50": 614.09,
+      "latency_ms_p95": 649.26,
       "tool_calls_mean": 4.0,
       "iterations_mean": 1.0,
       "span_validity": 1.0,
-      "misses_at_1": [
-        "dev-05",
-        "dev-06",
-        "dev-16",
-        "dev-18"
-      ]
+      "misses_at_1": []
     },
     "adaptive": {
-      "mrr@10": 0.9722,
-      "recall@1": 0.9444,
+      "mrr@10": 1.0,
+      "recall@1": 1.0,
       "recall@5": 1.0,
       "recall@10": 1.0,
-      "ndcg@10": 0.9795,
+      "ndcg@10": 1.0,
       "precision@10": 0.1,
-      "latency_ms_p50": 43.97,
-      "latency_ms_p95": 83.82,
-      "tool_calls_mean": 3.7778,
-      "iterations_mean": 1.3889,
+      "latency_ms_p50": 42.88,
+      "latency_ms_p95": 72.83,
+      "tool_calls_mean": 3.25,
+      "iterations_mean": 1.1667,
       "span_validity": 1.0,
-      "misses_at_1": [
-        "dev-12"
-      ]
+      "misses_at_1": []
     }
   },
   "index": {
-    "retrievable_units": 21,
-    "all_units": 28,
-    "index_bytes": 96103,
+    "retrievable_units": 18,
+    "all_units": 22,
+    "index_bytes": 79280,
     "embedding_model": "st:Alibaba-NLP/gte-modernbert-base:da39a3ee",
-    "indexing_seconds": 10.05,
+    "indexing_seconds": 11.69,
     "indexing_note": "includes snapshot copy, parsing, embedding model load and embedding on CPU"
   }
 }

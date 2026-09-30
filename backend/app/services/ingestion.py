@@ -15,7 +15,7 @@ from app.retrieval.index import CodeIndex
 from app.retrieval.service import registry
 from app.services.analyzer import PythonAnalyzer
 from app.services.code_units import AnalysisContext, analyze_repository
-from app.services.js_analyzer import JavaScriptAnalyzer
+from app.services.js_analyzer import JavaScriptAnalyzer, TypeScriptAnalyzer
 from app.services.git_history import GitEvolution
 from app.services.graph import build_graph
 from app.services.graph_backend import InMemoryGraphBackend
@@ -27,7 +27,8 @@ from app.security.input_validation import validate_repository_source
 
 
 logger = logging.getLogger(__name__)
-ANALYZERS = (JavaScriptAnalyzer(), PythonAnalyzer())
+JS_FAMILY = {"JavaScript", "TypeScript"}
+ANALYZERS = (JavaScriptAnalyzer(), TypeScriptAnalyzer(), PythonAnalyzer())
 
 
 COPY_IGNORE = shutil.ignore_patterns(".git","__pycache__","node_modules","dist","build",".venv","venv")
@@ -109,9 +110,10 @@ def _materialize(request: IngestRequest) -> tuple[Path, str, str]:
 
 def _architecture(analyses) -> str:
     imports = {imp.split(".")[0] for a in analyses for imp in a.imports}
-    js_imports = {imp.removeprefix("node:").split("/")[0] for a in analyses if a.language == "JavaScript" for imp in a.imports}
+    js_imports = {imp.removeprefix("node:").split("/")[0] for a in analyses if a.language in JS_FAMILY for imp in a.imports}
     if {"express", "koa", "fastify", "@nestjs", "hapi"} & js_imports: return "JavaScript web service / API"
     if {"react", "vue", "svelte", "@angular", "next"} & js_imports: return "JavaScript front-end application"
+    if any(a.language == "TypeScript" for a in analyses) and not any(a.language == "Python" for a in analyses): return "modular TypeScript application"
     if any(a.language == "JavaScript" for a in analyses) and not any(a.language == "Python" for a in analyses): return "modular JavaScript application"
     if {"fastapi", "flask", "django"} & imports: return "web service / API"
     if {"sqlalchemy", "django"} & imports: return "data-backed application"

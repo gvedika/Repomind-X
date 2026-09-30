@@ -1,0 +1,19 @@
+{
+  "description": "Held-out test split for examples/sample_ts_repo (TypeScript). Written before any run on this fixture; never used for tuning. Queries avoid target symbol names.",
+  "split": "test",
+  "repository": "examples/sample_ts_repo",
+  "queries": [
+    {"id": "ts-01", "query": "add tax to the subtotal and convert into the customer's currency", "relevant": ["BillingService.totalDue"]},
+    {"id": "ts-02", "query": "mark an invoice as issued, persist it and notify the customer", "relevant": ["BillingService.issue"]},
+    {"id": "ts-03", "query": "send reminders for invoices that are past due", "relevant": ["BillingService.remindOverdue"]},
+    {"id": "ts-04", "query": "sum quantity times unit price across all lines", "relevant": ["subtotal"]},
+    {"id": "ts-05", "query": "exchange an amount between currencies using fixed rates", "relevant": ["convert"]},
+    {"id": "ts-06", "query": "locale aware currency string for an amount in cents", "relevant": ["formatMoney"]},
+    {"id": "ts-07", "query": "check a webhook payload signature", "relevant": ["Webhooks.verifySignature"]},
+    {"id": "ts-08", "query": "shape of a billable line with sku and price", "relevant": ["LineItem"]},
+    {"id": "ts-09", "query": "lifecycle states an invoice can be in", "relevant": ["InvoiceStatus"]},
+    {"id": "ts-10", "query": "storage interface for saving invoices and finding overdue ones", "relevant": ["InvoiceRepository"]},
+    {"id": "ts-11", "query": "react table listing invoices with their totals", "relevant": ["InvoiceTable"]},
+    {"id": "ts-12", "query": "which methods call subtotal before convert", "relevant": ["BillingService.totalDue"]}
+  ]
+}

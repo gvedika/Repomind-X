@@ -103,9 +103,9 @@ def test_exclusions_bundles_binary_and_size_limits(tmp_path):
         (tmp_path / rel).write_text(text, encoding="utf-8")
     (tmp_path / "src/blob.js").write_bytes(b"\x00\x01binary")
     analyses, coverage = analyze_repository(tmp_path, [JavaScriptAnalyzer()], max_bytes=1000)
-    assert sorted(a.path for a in analyses) == ["src/app.js", "src/blob.js"]
-    assert coverage.skipped_reasons == {"generated_bundle": 1, "too_large": 1}
-    assert next(a for a in analyses if a.path == "src/blob.js").parse_status == ParseStatus.SKIPPED
+    assert sorted(a.path for a in analyses) == ["src/app.js"]
+    assert coverage.skipped_reasons == {"generated_bundle": 1, "too_large": 1, "binary_content": 1}
+    assert coverage.files_skipped == 3 and coverage.files_failed == 0 and coverage.ratio == 1.0
 
 
 def test_crlf_sources_keep_line_numbers(tmp_path):
