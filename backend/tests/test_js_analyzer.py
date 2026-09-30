@@ -134,8 +134,10 @@ def test_ingest_sample_js_repo_end_to_end(tmp_path, monkeypatch):
 
     monkeypatch.setattr(settings, "repository_root", tmp_path / "repos")
     monkeypatch.setattr(settings, "graph_backend", "memory")
+    monkeypatch.setattr(settings, "chroma_host", "fake-chroma")
     monkeypatch.setattr(ingestion, "ChromaVectorStore", FakeVectors)
-    summary = ingestion.ingest(IngestRequest(source=str(SAMPLE)))
+    from app.retrieval.embedding import HashingEmbedder
+    summary = ingestion.ingest(IngestRequest(source=str(SAMPLE)), embedder=HashingEmbedder())
     assert summary.languages == {"JavaScript": 7} and summary.architecture == "JavaScript web service / API"
     assert summary.parse_coverage.files_parsed == 7 and summary.units == summary.parse_coverage.units > 20
     assert summary.functions >= 15 and summary.commit_sha
@@ -144,4 +146,5 @@ def test_ingest_sample_js_repo_end_to_end(tmp_path, monkeypatch):
     assert len(units) == summary.units and len({u["unit_id"] for u in units}) == len(units)
     assert all(u["repository_id"] == summary.id and u["commit_sha"] == summary.commit_sha for u in units)
     login = next(d for d in stored if d.metadata.get("function") == "login")
-    assert login.metadata["language"] == "JavaScript" and login.metadata["unit_id"].startswith("cu_")
+    assert login.metadata["language"] == "JavaScript" and login.id == login.metadata["unit_id"] and login.id.startswith("cu_")
+    assert "crypto.randomBytes(32)" in login.text and (login.metadata["line_start"], login.metadata["line_end"]) == (23, 37)

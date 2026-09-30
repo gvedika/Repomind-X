@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     neo4j_pool_size:int=50
     neo4j_timeout_seconds:float=15.0
     graph_backend:str="neo4j"
+    allow_graph_fallback:bool=True
     chroma_host:str|None=None
     chroma_port:int=8000
     openai_api_key:str|None=None
@@ -23,6 +24,10 @@ class Settings(BaseSettings):
     embedding_model:str="BAAI/bge-small-en-v1.5"
     reranker_model:str="cross-encoder/ms-marco-MiniLM-L-6-v2"
     reranker_path:Path|None=None
+    model_device:str="cpu"
+    retrieval_candidates:int=50
+    rerank_candidates:int=30
+    rrf_k:int=60
     mlflow_tracking_uri:str|None=None
     enable_llm_reasoning:bool=True
     mcp_server_command:str="python -m app.mcp_server.server"

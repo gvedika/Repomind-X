@@ -5,7 +5,7 @@ from pathlib import Path
 from app.core.config import settings
 from app.models.schemas import Finding,RepositorySummary
 from app.services.graph import KnowledgeGraph
-from app.services.graph_backend import get_production_backend
+from app.services.graph_backend import InMemoryGraphBackend, get_production_backend
 from app.services.git_history import GitEvolution
 from app.services.vector import ChromaVectorStore
 
@@ -14,10 +14,11 @@ from app.services.vector import ChromaVectorStore
 class RepositoryState:
     summary:RepositorySummary
     graph:KnowledgeGraph
-    vectors:ChromaVectorStore
+    vectors:ChromaVectorStore|None
     git:GitEvolution
     findings:list[Finding]
     memories:list[str]=field(default_factory=list)
+    root:Path|None=None
 
 
 class RepositoryStore:
@@ -29,19 +30,22 @@ class RepositoryStore:
     def restore(self):
         root=Path(settings.repository_root)
         if not root.exists(): return
-        try: backend=get_production_backend()
-        except Exception: return
+        backend=None
+        if settings.graph_backend=="neo4j":
+            try: backend=get_production_backend()
+            except Exception: backend=None
+        if backend is None: backend=InMemoryGraphBackend()
         for summary_path in root.glob("*/.repomind/summary.json"):
             try:
                 summary=RepositorySummary.model_validate(json.loads(summary_path.read_text(encoding="utf-8")))
                 repo_root=summary_path.parent.parent
                 graph=KnowledgeGraph(summary.id,backend)
-                vectors=ChromaVectorStore(summary.id)
+                vectors=ChromaVectorStore(summary.id) if settings.chroma_host else None
                 findings=[]
                 findings_path=summary_path.parent/"findings.json"
                 if findings_path.exists():
                     findings=[Finding.model_validate(x) for x in json.loads(findings_path.read_text(encoding="utf-8"))]
-                self.add(RepositoryState(summary,graph,vectors,GitEvolution.mine(repo_root),findings))
+                self.add(RepositoryState(summary,graph,vectors,GitEvolution.mine(repo_root),findings,root=repo_root))
             except Exception:
                 continue
 

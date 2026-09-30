@@ -171,3 +171,74 @@ class QueryResponse(BaseModel):
     plan: list[str]
     evidence: Evidence
     verification_notes: list[str]
+
+
+class SourceStatus(StrEnum):
+    VERIFIED = "verified"
+    STALE = "stale"
+    MISSING = "missing"
+    INVALID = "invalid"
+
+
+class RetrievalMode(StrEnum):
+    SEMANTIC = "semantic"
+    LEXICAL = "lexical"
+    HYBRID = "hybrid"
+    HYBRID_RERANK = "hybrid_rerank"
+    ADAPTIVE = "adaptive"
+
+
+class SearchRequest(BaseModel):
+    repository_id: str
+    query: str = Field(min_length=3, max_length=2000)
+    mode: RetrievalMode = RetrievalMode.HYBRID_RERANK
+    top_k: int = Field(10, ge=1, le=50)
+    commit_sha: str | None = None
+    language: str | None = None
+
+
+class SearchResult(BaseModel):
+    rank: int
+    unit_id: str
+    name: str
+    qualified_name: str
+    unit_type: UnitType
+    language: str
+    signature: str | None = None
+    file_path: str
+    line_start: int
+    line_end: int
+    excerpt: str
+    excerpt_line_end: int
+    excerpt_truncated: bool = False
+    source_status: SourceStatus
+    score: float
+    score_components: dict[str, float] = Field(default_factory=dict)
+    component_ranks: dict[str, int] = Field(default_factory=dict)
+    evidence: list[str] = Field(default_factory=list)
+    relationships: list[dict] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class TraceStep(BaseModel):
+    iteration: int
+    action: str
+    reason: str
+    candidates: int
+    new_candidates: int = 0
+    duration_ms: float
+
+
+class SearchResponse(BaseModel):
+    query: str
+    repository_id: str
+    commit_sha: str
+    mode: RetrievalMode
+    results: list[SearchResult]
+    trace: list[TraceStep] = Field(default_factory=list)
+    latency_ms: float
+    iterations: int = 1
+    tool_calls: int = 1
+    stop_reason: str = "single_pass"
+    warnings: list[str] = Field(default_factory=list)
+    parse_coverage: ParseCoverage | None = None
