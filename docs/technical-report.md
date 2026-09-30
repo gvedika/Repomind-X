@@ -1,66 +1,65 @@
-# RepoMind-X Technical Report
+# RepoMind-X Technical Report: Theme 1, Agentic Code Intelligence
 
-## Abstract
+## Problem
 
-RepoMind-X is an evidence-first repository intelligence platform that integrates static program analysis, vector retrieval, knowledge-graph traversal, Git evolution mining, security scanning, and risk prediction. Its purpose is to answer repository questions from structural and historical evidence rather than from isolated code snippets.
+Given a natural-language question about a codebase, return the code that implements the behaviour: a ranked list of
+real functions and methods with exact file paths and line ranges, plus the evidence behind each rank. Retrieval quality is the
+product. Generated prose is optional and always downstream of the ranked evidence.
 
-## Introduction
+## System
 
-Conventional retrieval-augmented code assistants often lose call relationships, dependency direction, and evolutionary context. RepoMind-X uses a hybrid retrieval policy: semantic search identifies likely code regions; the graph expands those regions through `DEFINES`, `IMPORTS`, and `CALLS`; Git history supplies authorship and modification evidence; a verification stage only cites entities resolved by the index.
+1. **Ingestion and versioning.** A local path or Git URL is materialised into a per-commit snapshot. An explicit
+   commit is exported with `git archive`. A working tree is labelled with HEAD, or `HEAD-dirty` when it has
+   uncommitted changes. Repository IDs derive from the source identity, and unit IDs from
+   `(repository, commit, path, type, qualified name, ordinal)`.
+2. **Parsing.** Language adapters implement one interface and emit canonical `CodeUnit` records: the Tree-sitter
+   JavaScript adapter and the `ast`-based Python adapter. Parse failures are recorded per file (`ok`, `partial`,
+   `failed` or `skipped`, with reasons) and never abort a repository. Malformed JavaScript is re-parsed per top-level chunk.
+3. **Documents.** Each function, method or class document contains its qualified name, signature, docstring, path and
+   the **implementation body**, bounded to 2,400 characters for the encoder.
+4. **Retrieval.**
+   - *Lexical*: BM25 over code-aware tokens (identifiers split on case, underscores and dots; light stemming; name
+     fields ×3, signature, docstring and path ×2, body ×1).
+   - *Semantic*: `BAAI/bge-small-en-v1.5` on CPU, with the BGE query instruction.
+   - *Hybrid*: reciprocal rank fusion (k = 60) of both, deduplicated by unit ID. This is the default.
+   - *Hybrid + rerank*: MS MARCO MiniLM CrossEncoder over the top 30, blended with the first stage by RRF. Opt-in.
+   - *Adaptive*: a bounded rule-based loop over allowlisted actions (below).
+5. **Verification.** Before a result is returned, its repository and commit, path containment, file existence, span
+   bounds and content equality with the indexed snapshot are checked. Invalid or missing units are dropped with a
+   warning, and stale ones are flagged.
+6. **Static graph.** CONTAINS, DEFINES, EXPORTS, IMPORTS (module specifiers resolved to repository files) and CALLS.
+   A call is linked only when it resolves through lexical scope, `this.` inside a class, an export of an imported
+   repository module, or an exact qualified name. Everything else is kept as an unresolved call with a reason.
 
-## Methodology
+### Adaptive retrieval
 
-1. **Ingestion** accepts a local checkout or public Git URL, excludes generated/vendor folders, detects Python source, and creates an immutable indexing summary.
-2. **Understanding** parses Python ASTs to extract imports, classes, methods, function signatures, annotations, decorators, docstrings, call expressions, and cyclomatic-complexity approximation. The `PythonAnalyzer` is intentionally isolated behind an analyzer boundary so Tree-sitter adapters for TypeScript, Java, C++, and Java can be added without changing the graph contract.
-3. **Graph construction** makes Repository, File, Class, Function and Library entities first-class. Call edges are resolved conservatively from parsed call names; ambiguous dynamic calls remain uncited rather than guessed.
-4. **Hybrid retrieval** scores semantic documents and expands named hits through bounded breadth-first graph traversal. The embedded hash-vector implementation makes the demo self-contained; Chroma/BGE or CodeBERT adapters are the production target.
-5. **Evolution and risk** mines Git commits and contributors per file. Function risk combines complexity, called-dependency count, modification frequency, contributor count, and nearby security findings on a 0–100 scale. A Random Forest/XGBoost model can replace this calibrated heuristic after labelled historical defects are collected.
+| Signal (from the user query and retrieval scores only) | Action |
+|---|---|
+| always | lexical + semantic first stage, then RRF |
+| "call/invoke/use X before/after Y" | `structural_order`: every unit containing both calls, with line numbers and observed source order; stop |
+| relationship words (calls, callers, uses, imports, depends, flow) | `graph`: expand CALLS edges from the top 3 candidates (≤ 2 hops, fan-out ≤ 8), then fuse |
+| lexical and semantic agree on the top unit | stop: `sufficient_evidence` |
+| they disagree | `semantic_rewrite` with a keyword-only query, then fuse; stop if nothing new |
 
-## Architecture
+Hard limits: 4 iterations, 12 tool calls, 100 candidates and a 10-second timeout. Every step is logged with its reason,
+candidate and new-candidate counts, and duration. Text from the repository is only ever scored; it is never read as
+instructions (see `test_repository_text_is_not_treated_as_instructions`).
 
-```mermaid
-flowchart TB
-  subgraph ingestion[Repository ingestion]
-    Git[Git URL / local path] --> Parser[AST + language adapters]
-    Git --> History[Git miner]
-  end
-  Parser --> Graph[(Graph store: embedded / Neo4j)]
-  Parser --> Vector[(Vector store: embedded / Chroma)]
-  History --> Graph
-  History --> Risk[Risk engine]
-  Query --> Planner[LangGraph planner]
-  Planner --> Vector
-  Planner --> Graph
-  Planner --> History
-  Vector --> Fuse[Context fusion]
-  Graph --> Fuse
-  History --> Fuse
-  Risk --> Fuse
-  Fuse --> Verify[Verification agent]
-  Verify --> API[FastAPI + React dashboard]
-```
+## Evaluation
 
-The LangGraph topology is `planner → retrieval → reasoning → verification`. Current default responses use deterministic orchestration to remain operational without provider credentials; `agent_graph.py` exposes the equivalent LangGraph topology for an LLM-enabled deployment.
+**Official (CoIR Apps Retrieval via MTEB 1.39.7, test split, CPU).** The encoder is the retriever's own embedder and
+preprocessing, and MTEB generated the result: nDCG@10 = 0.05545, recall@100 = 0.19442, 995 s on a 16-thread Intel CPU.
+Artifacts are in `submission/mteb_results/`. Apps matches competitive-programming problem statements to Python
+solutions, so a small general English encoder is weak on it. The number is reported without adjustment.
 
-## API
+**Custom (aligned).** Every mode ranks the same canonical units of `examples/sample_js_repo`, which has 21 retrievable
+units. Defaults were chosen on an 18-query dev split: semantic 1.00 MRR@10, hybrid 0.97, lexical 0.81, rerank 0.86. The
+held-out 14-query test split was run once afterwards: adaptive 0.854, lexical 0.786, semantic 0.780, hybrid 0.746,
+hybrid+rerank 0.744. At this size the figures are indicative only.
 
-| Endpoint | Purpose |
-| --- | --- |
-| `POST /api/repositories/ingest` | Index a local path or public Git URL |
-| `GET /api/repositories/{id}/graph` | Return graph nodes and edges for React Flow |
-| `GET /api/repositories/{id}/impact?symbol=...` | Traverse downstream structural impact |
-| `GET /api/repositories/{id}/findings` | Return security findings |
-| `POST /api/query` | Run hybrid query and return grounded evidence |
-| `POST /api/repositories/{id}/memory` | Persist a repository-scoped note for the process lifetime |
+## Limitations
 
-## Experiments and evaluation
-
-Evaluation uses repository-specific questions with annotated relevant symbols, dependencies, claims, and citations. Compare vector-only, graph-only, and hybrid modes on retrieval accuracy, dependency accuracy, answer correctness, citation accuracy, and latency. The aggregate Repository Understanding Score is:
-
-`RUS = 0.3R + 0.3D + 0.2E + 0.2C`
-
-where `R` is retrieval accuracy, `D` dependency accuracy, `E` explanation correctness, and `C` citation accuracy. `EvaluationMetrics` implements this metric and unit tests verify the formula.
-
-## Limitations and future work
-
-Current source parsing is Python-first and call resolution is deliberately conservative. Planned production extensions include Tree-sitter multi-language adapters, Neo4j persistence, Chroma/BGE embeddings, PostgreSQL conversation memory, CodeQL/Semgrep workers, PR and issue-provider connectors, calibrated XGBoost risk scores, background re-indexing, access control, and benchmark datasets.
+The analysis is static: call order is syntactic, not runtime order. TypeScript and other languages are not parsed.
+Import binding names are not tracked. The reranker is not code-specific. Cross-version symbol matching is not
+implemented. The legacy Neo4j/LangGraph/MCP agent path (`/api/query`) and the Docker Compose stack were not run in the
+build environment.

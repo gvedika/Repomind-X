@@ -1,110 +1,190 @@
-# RepoMind-X — Agentic Production GraphRAG
+# RepoMind-X — Agentic Code Intelligence (Samsung PRISM GenAI Hackathon, Theme 1)
 
-RepoMind-X is an evidence-first repository intelligence system that combines Python AST analysis, persistent Neo4j knowledge graphs, BGE/Chroma semantic retrieval, CrossEncoder reranking, MCP tools, and dynamic LangGraph orchestration.
+RepoMind-X takes a natural-language question about a repository and returns a **ranked list of real code units** —
+functions, methods and classes — each with its repository-relative path, exact one-based line range, a source excerpt
+verified against the indexed snapshot, and the evidence behind its rank. It is JavaScript-first (Tree-sitter) and keeps a
+Python adapter. Retrieval runs entirely on CPU; an LLM is optional and never replaces the ranked source evidence.
 
-## Architecture
-
-```text
-Repository
-   │
-   ├── AST / static analysis ───────┐
-   │                                ▼
-   │                         Graph Abstraction
-   │                                │
-   │                                ▼
-   │                             Neo4j
-   │
-   └── BGE embeddings → ChromaDB → CrossEncoder
-                                      │
-                                      ▼
-User → LangGraph Planner → MCP Client → MCP Server → Repository Tools
-                         ↑                         │
-                         └──── observations ───────┘
-                                      │
-                                      ▼
-                              LLM reasoning
-                                      │
-                                      ▼
-                               Verification
+```
+question ──► lexical (code-aware BM25) ─┐
+         ├─► semantic (BGE, CPU) ───────┼─► RRF fusion ─► [optional CrossEncoder] ─► source verification ─► ranked units
+         └─► adaptive loop: graph expansion over static CALLS/IMPORTS/EXPORTS, call-order analysis, query rewrite, stop
 ```
 
-## Production dependencies
+## What is verified (and what is not)
 
-- Python 3.11+
-- Neo4j 5
-- ChromaDB 0.5.x
-- MLflow 2.19+
-- Prometheus + Grafana
-- Node 22+ for the frontend
-- An OpenAI, Anthropic, or OpenAI-compatible local LLM for live reasoning
+| Item | Status | Evidence |
+|---|---|---|
+| JavaScript ingestion (`.js/.jsx/.mjs/.cjs`), canonical units, parse coverage | **PASS** | `backend/tests/test_js_analyzer.py`, live run below |
+| Exact spans + verified excerpts, stale/missing/traversal handling | **PASS** | `backend/tests/test_retrieval_sources.py` |
+| Semantic / lexical / hybrid / hybrid+rerank / adaptive modes | **PASS** | `backend/tests/test_hybrid_retrieval.py`, `test_graph_adaptive.py` |
+| Commit-scoped indexing and retrieval | **PASS** | `backend/tests/test_commit_scope.py` (two-commit Git fixture) |
+| `/api/search` contract, errors, partial-parse warnings | **PASS** | `backend/tests/test_search_api.py`; live uvicorn + real BGE |
+| Official CoIR Apps Retrieval (MTEB) run on CPU | **PASS (genuine run)** | `submission/mteb_results/` — nDCG@10 **0.05545** |
+| Frontend type-check + production build | **PASS** | `npm run build` |
+| Frontend interaction in a browser | **NOT RUN** in the build environment | — |
+| Docker Compose full stack (Neo4j, Chroma, MLflow, Prometheus, Grafana) | **NOT RUN** (`docker compose config` validates) | — |
+| LLM explanation / legacy LangGraph + MCP agent path (`/api/query`) | **NOT RUN** (needs Neo4j + an LLM key) | — |
 
-## Quick start
+Backend test suite: `68 passed, 1 skipped` (the skipped test needs external services).
 
-1. Copy `.env.example` to `.env`.
-2. Set a strong `NEO4J_PASSWORD`.
-3. Configure an LLM provider if live reasoning is required.
-4. Start the stack:
+## Quick start (CPU, no Docker)
+
+Requirements: Python 3.12, Node 20+ (tested with Node 24), ~1 GB disk for the embedding model cache. Tested on
+Windows 11 with a 16-thread Intel CPU; nothing is Windows-specific.
 
 ```bash
-docker compose up --build
+cd backend
+python -m venv .venv
+# Windows: .venv\Scripts\activate    Linux/macOS: source .venv/bin/activate
+pip install torch --index-url https://download.pytorch.org/whl/cpu   # CPU wheel, avoids CUDA downloads
+pip install -r requirements.txt
+GRAPH_BACKEND=memory uvicorn app.main:app --port 8000               # PowerShell: $env:GRAPH_BACKEND="memory"; uvicorn app.main:app --port 8000
 ```
 
-5. Open the frontend at `http://localhost:5173`.
+In a second terminal:
 
-The supplied sample repository is mounted at `/opt/examples/sample_repo`.
+```bash
+cd frontend
+npm ci
+npm run dev          # http://localhost:5173 (proxies /api to :8000)
+```
 
-## Runtime behavior
+In the UI, index `../examples/sample_js_repo` (the path is relative to the backend's working directory), then try the
+example questions. The first ingest downloads `BAAI/bge-small-en-v1.5` (~130 MB).
 
-- Local repositories are copied into the configured repository sandbox before indexing.
-- Remote Git repositories are cloned into the same sandbox.
-- Production graph execution uses Neo4j. The in-memory backend exists only for tests or explicit `GRAPH_BACKEND=memory`.
-- Agents communicate with repository tools through the MCP client/server boundary.
-- The planner emits typed MCP tool calls with explicit arguments; function/change identifiers are never substituted with the full natural-language question.
-- Repository content is treated as untrusted data; repository instructions cannot override system behavior.
-- No benchmark numbers are committed without a real benchmark execution.
+Terminal demo (ingest, name-free questions, ranked snippets, baseline vs adaptive with trace, evaluation result,
+limitations; everything printed comes from live calls):
 
-## Validation status
+```bash
+cd backend && GRAPH_BACKEND=memory python -m app.demo
+```
 
-The repository is hardened around the real MCP client/server boundary and persistent Neo4j/Chroma production paths. The local validation pass covers Python compilation, plain `pytest tests -q`, and MCP client lifecycle code inspection. Full Neo4j, ChromaDB, MLflow, Grafana, Prometheus, Docker, and live LLM validation require the external services and credentials described below; those checks must be reported as **NOT RUN** when the services are unavailable rather than represented by fabricated metrics.
+Environment variables are documented in [.env.example](.env.example). Only `REPOSITORY_ROOT`, `GRAPH_BACKEND`,
+`MODEL_DEVICE` and the model names matter for retrieval; Neo4j, Chroma, MLflow and LLM settings are optional.
 
-This project is **production-oriented** / has a **production-grade architecture**; it does not claim production readiness solely from the repository contents.
+## API
+
+```bash
+# Index a local path or public Git URL; optional "commit" (SHA/ref) indexes that exact version.
+curl -X POST localhost:8000/api/repositories/ingest -H 'content-type: application/json' \
+     -d '{"source": "../examples/sample_js_repo"}'
+
+# Ranked code units. mode: hybrid (default) | adaptive | semantic | lexical | hybrid_rerank
+curl -X POST localhost:8000/api/search -H 'content-type: application/json' \
+     -d '{"repository_id": "<id>", "query": "retry an async operation with growing delays", "mode": "hybrid", "top_k": 5}'
+```
+
+Each result carries `unit_id`, `qualified_name`, `unit_type`, `language`, `signature`, `file_path`, `line_start`,
+`line_end`, `excerpt` (bounded; `excerpt_truncated` / `excerpt_line_end` when cut), `source_status`
+(`verified` | `stale`), `score`, `score_components` and `component_ranks` (lexical / semantic / rrf / reranker / graph /
+structural), `evidence`, `relationships` and `warnings`. The response adds `commit_sha`, `trace` (every action with reason,
+candidate counts and duration), `latency_ms`, `iterations`, `tool_calls`, `stop_reason`, parse coverage and warnings.
+
+Other endpoints: `GET /api/repositories`, `GET /api/repositories/{id}/commits`,
+`DELETE /api/repositories/{id}/commits/{sha}`, `GET /api/repositories/{id}/units/{unit_id}` (full verified source,
+resolved callers/callees and unresolved calls).
+
+Measured on the sample repo with the real BGE model on CPU (warm): hybrid ≈ 18 ms, adaptive structural query ≈ 100 ms.
+The first query after start-up also loads the model (several seconds).
+
+## How it works
+
+- **Canonical code units** (`backend/app/models/schemas.py`, `app/services/code_units.py`): every adapter emits the
+  same record: stable ID scoped to repository + commit, type, names, signature, one-based span, real source body,
+  docstring, imports, calls with source-ordered call sites, exports, parse status and parser uncertainty.
+- **JavaScript adapter** (`app/services/js_analyzer.py`, Tree-sitter): declarations, nameable arrow/function
+  expressions, class methods and field arrows, object-literal methods, prototype methods, ESM/CommonJS imports and
+  exports, JSDoc, and inline route handlers such as `router.post('/orders')`, named after their call site. Malformed files are
+  marked partial and re-parsed per top-level chunk so later definitions survive. `node_modules`, build output, bundles,
+  binaries and oversized files are skipped, and the reason is recorded.
+- **Index** (`app/retrieval/`): documents contain the implementation body. BGE vectors are cached per commit in
+  `.repomind/embeddings.npz`; lexical search is a code-aware BM25 that splits camelCase, snake_case and dotted identifiers.
+  Results are fused with RRF (k=60). The optional CrossEncoder reranks only a bounded pool (30).
+- **Source verification** (`app/retrieval/source.py`): checks repository/commit identity, path containment, file
+  existence, span bounds and content match. Invalid or missing units are dropped with a warning; stale units are
+  flagged, never silently relocated.
+- **Static graph** (`app/retrieval/graph.py`): CONTAINS, DEFINES, EXPORTS, IMPORTS and CALLS. A call becomes an edge
+  only when it resolves through nested, enclosing or same-file scope, `this.` methods, an export of an imported
+  repository module, or an exact qualified name. Dynamic receivers, external libraries and ambiguous names are listed as
+  unresolved.
+- **Adaptive mode** (`app/retrieval/adaptive.py`): allowlisted actions (lexical, semantic, rrf, graph expansion,
+  structural call order, keyword rewrite, stop). Rules read only the user query and retrieval scores, never repository
+  text. Budgets cover iterations (4), tool calls (12), candidates (100), hops (2), fan-out (8) and a 10 s timeout, and
+  every stop reason is explicit. For "which functions call X before Y?", it reports the units that contain both calls,
+  with their line numbers and observed source order.
+- **Commit scope**: an explicit commit is exported with `git archive` into its own snapshot. The working tree is
+  labelled with HEAD, plus `-dirty` if it differs. IDs, indexes, Chroma collections and store entries are all
+  namespaced by repository + commit.
 
 ## Evaluation
 
-Create a labelled JSON dataset containing repository questions and gold `relevant_ids`, then run:
+### Official screening artifact: CoIR Apps Retrieval (MTEB)
 
 ```bash
-python -m app.evaluation.run_benchmark \
-  --repository-id <repository-id> \
-  --dataset <dataset.json> \
-  --output evaluation_results.json
+cd backend
+pip install -r requirements-eval.txt
+python -m app.evaluation.coir_apps --output ../submission/mteb_results
 ```
 
-This executes Vector RAG, Graph Retrieval, Hybrid GraphRAG, and Agentic GraphRAG and records Precision@5, Recall@5, MRR, NDCG@5, latency, tool calls, and evidence-grounded measurements. MLflow logging is attempted when `MLFLOW_TRACKING_URI` is configured.
+The encoder wraps the same embedder and preprocessing the retriever uses: BGE query instruction on queries, raw code
+documents, normalised vectors, 512 tokens, CPU. MTEB writes the result file itself.
+
+| Task | Split | Dataset revision | Model | nDCG@10 (main) | Recall@100 | Runtime |
+|---|---|---|---|---|---|---|
+| AppsRetrieval | test | `f22508f9…` | BAAI/bge-small-en-v1.5 (CPU) | **0.05545** | 0.19442 | 995 s |
+
+- Result JSON: `submission/mteb_results/repomind-x__bge-small-en-v1.5/repomind-x-encoder-v1/AppsRetrieval.json`
+- Manifest (hardware, versions, command, timing): `submission/mteb_results/run_manifest.json`
+
+Apps pairs competitive-programming problem statements with Python solutions, and a small general-purpose English
+encoder scores low on it. The number is reported exactly as generated.
+
+### Custom benchmark (separate from the official artifact)
+
+`python -m app.evaluation.retrieval_eval --dataset evaluation/<split>.json` ingests the fixture and evaluates every mode
+on the **same canonical units** for the same queries. Mode defaults were chosen on the dev split only; the held-out
+test split was run once afterwards.
+
+| Split (queries) | semantic | lexical | hybrid | hybrid+rerank | adaptive |
+|---|---|---|---|---|---|
+| dev (18) MRR@10 | 1.000 | 0.815 | 0.972 | 0.861 | — |
+| **test (14) MRR@10** | 0.780 | 0.786 | 0.746 | 0.744 | **0.854** |
+
+Sources: `backend/evaluation/results/dev_sample_js_modes.json` and
+`submission/custom_benchmark/test_sample_js_modes.json`. The fixture has only 21 retrievable units, so treat these
+figures as a sanity check, not a leaderboard.
+
+## Optional services
+
+`docker compose up --build` starts the backend, frontend, Neo4j, Chroma 0.5.23, MLflow, Prometheus and Grafana (set
+`NEO4J_PASSWORD` in `.env` first). None of them are needed for `/api/search`:
+
+- **Neo4j** holds the legacy knowledge graph for the MCP/LangGraph agent path.
+- **Chroma** receives body-enriched documents when `CHROMA_HOST` is set.
+- **MLflow, Prometheus and Grafana** provide tracking and monitoring.
+
+The compose stack has not been started in the build environment (**NOT RUN**).
+
+## Limitations
+
+- Static analysis only. Call order is syntactic order within one unit, not runtime order across branches, loops,
+  callbacks or async code. Dynamic dispatch, computed members and re-exports through variables stay unresolved.
+- JavaScript only for the Tree-sitter path: TypeScript (`.ts/.tsx`), Vue/Svelte single-file components and code
+  inside HTML are not parsed. The recovery pass for malformed files is heuristic (it splits at column-0 declarations).
+- Import binding names are not tracked. Cross-file resolution relies on the imported module exporting the called
+  name, and a name exported by two imported modules is left unresolved.
+- The MS MARCO CrossEncoder did not help on code in the dev split, so reranking is opt-in.
+- The Neo4j graph for the legacy agent path keeps one graph per repository (latest ingest). Commit-scoped retrieval uses
+  the per-commit local graph. Cross-version symbol matching is not implemented.
+- The official CoIR score comes from a small general-purpose encoder.
 
 ## Tests
 
-From `backend/`:
-
 ```bash
-pytest tests -q
+cd backend && python -m pytest -q        # 68 passed, 1 skipped
+cd frontend && npm run build
 ```
 
-The MCP integration test is intentionally skipped unless `RUN_MCP_INTEGRATION=1` is set and the external services are running.
-
-## Important environment variables
-
-See `.env.example` for the complete configuration surface, including:
-
-- `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`
-- `CHROMA_HOST`, `CHROMA_PORT`
-- `LLM_PROVIDER`, `LLM_MODEL`
-- `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `LLM_BASE_URL`
-- `EMBEDDING_MODEL`, `RERANKER_MODEL`
-- `MLFLOW_TRACKING_URI`
-- `MCP_SERVER_COMMAND`
-- `MAX_AGENT_ITERATIONS`, `MAX_TOOL_CALLS`
-
-## Security
-
-RepoMind-X validates repository sources and tool arguments, scans for common secrets and dangerous execution patterns, blocks common prompt-injection attempts, prevents repository tool path traversal, and never executes repository code merely because an LLM requests it.
+Repository contents are treated as untrusted data: nothing from an indexed repository is executed, and repository text
+is never interpreted as instructions.

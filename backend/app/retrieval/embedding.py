@@ -14,13 +14,15 @@ class Embedder(Protocol):
 
 
 class SentenceTransformerEmbedder:
-    """BGE-style bi-encoder; queries get the BGE retrieval instruction, documents are encoded as-is."""
-    def __init__(self, model_name: str | None = None, device: str | None = None, batch_size: int = 32):
+    """Bi-encoder; queries get the configured retrieval instruction (BGE's by default), documents are encoded as-is."""
+    def __init__(self, model_name: str | None = None, device: str | None = None, batch_size: int = 32, query_instruction: str | None = None):
         from app.core.config import settings
         self.model_name = model_name or settings.embedding_model
         self.device = device or settings.model_device
         self.batch_size = batch_size
-        self.name = f"st:{self.model_name}"
+        self.query_instruction = settings.embedding_query_instruction if query_instruction is None else query_instruction
+        suffix = hashlib.sha1(self.query_instruction.encode()).hexdigest()[:8] if self.query_instruction != QUERY_INSTRUCTION else ""
+        self.name = f"st:{self.model_name}" + (f":{suffix}" if suffix else "")
         self._model = None
 
     @property
@@ -32,7 +34,7 @@ class SentenceTransformerEmbedder:
         return self._model
 
     def encode(self, texts: list[str], is_query: bool = False) -> np.ndarray:
-        prepared = [QUERY_INSTRUCTION + t if is_query else t for t in texts]
+        prepared = [self.query_instruction + t if is_query else t for t in texts]
         vectors = self.model.encode(prepared, batch_size=self.batch_size, normalize_embeddings=True, show_progress_bar=False, convert_to_numpy=True)
         return np.asarray(vectors, dtype=np.float32)
 

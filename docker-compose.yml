@@ -19,9 +19,11 @@ services:
       MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://mlflow:5000}
       ENABLE_LLM_REASONING: ${ENABLE_LLM_REASONING:-true}
       MCP_SERVER_COMMAND: python -m app.mcp_server.server
+      MODEL_DEVICE: ${MODEL_DEVICE:-cpu}
+      ALLOW_GRAPH_FALLBACK: ${ALLOW_GRAPH_FALLBACK:-true}
     volumes:
       - repo_data:/data/repos
-      - ./examples/sample_repo:/opt/examples/sample_repo:ro
+      - ./examples:/opt/examples:ro
     ports: ["8000:8000"]
     depends_on:
       neo4j: {condition: service_healthy}

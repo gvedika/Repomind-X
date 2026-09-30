@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     llm_base_url:str|None=None
     llm_temperature:float=0.0
     embedding_model:str="BAAI/bge-small-en-v1.5"
+    embedding_query_instruction:str="Represent this question for retrieving relevant code: "
     reranker_model:str="cross-encoder/ms-marco-MiniLM-L-6-v2"
     reranker_path:Path|None=None
     model_device:str="cpu"

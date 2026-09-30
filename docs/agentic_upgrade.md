@@ -1,4 +1,6 @@
-# RepoMind-X Agentic Production Upgrade
+# RepoMind-X Agentic Production Upgrade (legacy agent path)
+
+> This describes the earlier LangGraph + MCP + Neo4j question-answering path (`POST /api/query`). The Theme 1 retrieval system (`POST /api/search`) is documented in the README and `docs/technical-report.md`, and it does not need Neo4j, Chroma or an LLM. This legacy path was not run in the build environment.
 
 ## Implemented architecture
 
