@@ -12,7 +12,7 @@ from app.evaluation.metrics import ndcg_at_k, reciprocal_rank, recall_at_k
 from app.models.schemas import IngestRequest, RetrievalMode, SearchRequest
 from app.retrieval.service import search
 
-MODES = [RetrievalMode.SEMANTIC, RetrievalMode.LEXICAL, RetrievalMode.HYBRID, RetrievalMode.HYBRID_RERANK]
+MODES = [RetrievalMode.SEMANTIC, RetrievalMode.LEXICAL, RetrievalMode.HYBRID, RetrievalMode.HYBRID_RERANK, RetrievalMode.ADAPTIVE]
 
 
 def _relevant_ids(index, labels: list[str]) -> set[str]:

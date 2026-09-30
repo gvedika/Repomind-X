@@ -1,0 +1,2 @@
+-r requirements.txt
+mteb==1.39.7

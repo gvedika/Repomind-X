@@ -1,0 +1,21 @@
+{
+  "description": "Held-out test split for examples/sample_js_repo. Written after mode/default selection on the dev split and never used for tuning. Queries avoid target symbol names; structural queries ask about call relationships.",
+  "split": "test",
+  "repository": "examples/sample_js_repo",
+  "queries": [
+    {"id": "test-01", "query": "protect stored secrets with a slow key derivation function", "relevant": ["hashPassword"]},
+    {"id": "test-02", "query": "avoid timing attacks when checking credentials", "relevant": ["safeEqual"]},
+    {"id": "test-03", "query": "sign in and create a session token", "relevant": ["login"]},
+    {"id": "test-04", "query": "clean up stale sessions", "relevant": ["SessionManager.purgeExpired"]},
+    {"id": "test-05", "query": "backoff between repeated attempts of a flaky async call", "relevant": ["withRetry"]},
+    {"id": "test-06", "query": "batch a list into pages of n elements", "relevant": ["chunk"]},
+    {"id": "test-07", "query": "POST endpoint that validates the payload then takes payment", "relevant": ["router.post('/orders')"]},
+    {"id": "test-08", "query": "send the card and amount to the payments API and parse the reply", "relevant": ["chargeCard"]},
+    {"id": "test-09", "query": "reverse a completed charge", "relevant": ["refund"]},
+    {"id": "test-10", "query": "sum price times quantity for the items in the cart", "relevant": ["CartSummary"]},
+    {"id": "test-11", "query": "case insensitive user lookup", "relevant": ["findUserByEmail"]},
+    {"id": "test-12", "query": "which request handlers call withRetry before chargeCard", "relevant": ["router.post('/orders')"]},
+    {"id": "test-13", "query": "which functions call hashPassword before safeEqual", "relevant": ["login"]},
+    {"id": "test-14", "query": "input checks that collect error messages for an order", "relevant": ["validateOrder"]}
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "split": "test",
+  "queries": 14,
+  "units": 21,
+  "k": 10,
+  "modes": {
+    "semantic": {
+      "mrr@10": 0.7798,
+      "recall@1": 0.6429,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "ndcg@10": 0.8352,
+      "latency_ms_p50": 124.97,
+      "misses_at_1": [
+        "test-03",
+        "test-04",
+        "test-06",
+        "test-12",
+        "test-13"
+      ]
+    },
+    "lexical": {
+      "mrr@10": 0.7857,
+      "recall@1": 0.7143,
+      "recall@5": 0.8571,
+      "recall@10": 0.9286,
+      "ndcg@10": 0.8205,
+      "latency_ms_p50": 11.44,
+      "misses_at_1": [
+        "test-03",
+        "test-04",
+        "test-06",
+        "test-09"
+      ]
+    },
+    "hybrid": {
+      "mrr@10": 0.7464,
+      "recall@1": 0.5714,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "ndcg@10": 0.8101,
+      "latency_ms_p50": 111.28,
+      "misses_at_1": [
+        "test-03",
+        "test-04",
+        "test-06",
+        "test-09",
+        "test-12",
+        "test-13"
+      ]
+    },
+    "hybrid_rerank": {
+      "mrr@10": 0.744,
+      "recall@1": 0.5714,
+      "recall@5": 0.9286,
+      "recall@10": 1.0,
+      "ndcg@10": 0.8079,
+      "latency_ms_p50": 419.29,
+      "misses_at_1": [
+        "test-03",
+        "test-04",
+        "test-06",
+        "test-07",
+        "test-09",
+        "test-12"
+      ]
+    },
+    "adaptive": {
+      "mrr@10": 0.8536,
+      "recall@1": 0.7857,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "ndcg@10": 0.8892,
+      "latency_ms_p50": 19.43,
+      "misses_at_1": [
+        "test-03",
+        "test-04",
+        "test-06"
+      ]
+    }
+  }
+}

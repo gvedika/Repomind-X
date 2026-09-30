@@ -1,10 +1,8 @@
-[
-  {
-    "query": "Explain authentication flow",
-    "relevant_ids": [
-      "function:REPOSITORY_ID:auth.py:authenticate_user",
-      "function:REPOSITORY_ID:auth.py:validate_token"
-    ],
-    "expected_evidence": ["auth.py"]
-  }
-]
+{
+  "description": "Minimal example of the custom benchmark format for the Python fixture examples/sample_repo. Labels are qualified names, optionally 'path::qualified_name'.",
+  "split": "example",
+  "repository": "examples/sample_repo",
+  "queries": [
+    {"id": "py-01", "query": "Explain authentication flow", "relevant": ["auth.py::authenticate_user", "auth.py::validate_token"]}
+  ]
+}
