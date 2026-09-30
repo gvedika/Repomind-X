@@ -5,14 +5,16 @@
   "k": 10,
   "modes": {
     "semantic": {
-      "mrr@10": 0.869,
-      "recall@1": 0.7857,
+      "mrr@10": 0.7798,
+      "recall@1": 0.6429,
       "recall@5": 1.0,
       "recall@10": 1.0,
-      "ndcg@10": 0.9022,
-      "latency_ms_p50": 39.23,
+      "ndcg@10": 0.8352,
+      "latency_ms_p50": 124.97,
       "misses_at_1": [
         "test-03",
+        "test-04",
+        "test-06",
         "test-12",
         "test-13"
       ]
@@ -23,7 +25,7 @@
       "recall@5": 0.8571,
       "recall@10": 0.9286,
       "ndcg@10": 0.8205,
-      "latency_ms_p50": 2.76,
+      "latency_ms_p50": 11.44,
       "misses_at_1": [
         "test-03",
         "test-04",
@@ -32,39 +34,44 @@
       ]
     },
     "hybrid": {
-      "mrr@10": 0.8155,
-      "recall@1": 0.7143,
+      "mrr@10": 0.7464,
+      "recall@1": 0.5714,
       "recall@5": 1.0,
       "recall@10": 1.0,
-      "ndcg@10": 0.8615,
-      "latency_ms_p50": 41.75,
+      "ndcg@10": 0.8101,
+      "latency_ms_p50": 111.28,
       "misses_at_1": [
         "test-03",
         "test-04",
         "test-06",
+        "test-09",
+        "test-12",
         "test-13"
       ]
     },
     "hybrid_rerank": {
-      "mrr@10": 0.8512,
-      "recall@1": 0.7857,
+      "mrr@10": 0.744,
+      "recall@1": 0.5714,
       "recall@5": 0.9286,
       "recall@10": 1.0,
-      "ndcg@10": 0.887,
-      "latency_ms_p50": 396.21,
+      "ndcg@10": 0.8079,
+      "latency_ms_p50": 419.29,
       "misses_at_1": [
         "test-03",
         "test-04",
-        "test-06"
+        "test-06",
+        "test-07",
+        "test-09",
+        "test-12"
       ]
     },
     "adaptive": {
-      "mrr@10": 0.8571,
+      "mrr@10": 0.8536,
       "recall@1": 0.7857,
       "recall@5": 1.0,
       "recall@10": 1.0,
-      "ndcg@10": 0.8923,
-      "latency_ms_p50": 44.79,
+      "ndcg@10": 0.8892,
+      "latency_ms_p50": 19.43,
       "misses_at_1": [
         "test-03",
         "test-04",

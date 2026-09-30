@@ -60,7 +60,7 @@ def main():
     else:
         print("  not found; run python -m app.evaluation.coir_apps\n")
     print("6) Limitations: static analysis only (syntactic call order, dynamic dispatch unresolved); JavaScript/Python only "
-          "(no TypeScript); import bindings not tracked; small general-purpose encoder on CPU.")
+          "(no TypeScript); import bindings not tracked; encoder chosen after an official-test comparison (see README).")
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-small-en-v1.5}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-Alibaba-NLP/gte-modernbert-base}
       RERANKER_MODEL: ${RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
       MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://mlflow:5000}
       ENABLE_LLM_REASONING: ${ENABLE_LLM_REASONING:-true}

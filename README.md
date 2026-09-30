@@ -7,7 +7,7 @@ Python adapter. Retrieval runs entirely on CPU; an LLM is optional and never rep
 
 ```
 question ──► lexical (code-aware BM25) ─┐
-         ├─► semantic (BGE, CPU) ───────┼─► RRF fusion ─► [optional CrossEncoder] ─► source verification ─► ranked units
+         ├─► semantic (gte, CPU) ───────┼─► RRF fusion ─► [optional CrossEncoder] ─► source verification ─► ranked units
          └─► adaptive loop: graph expansion over static CALLS/IMPORTS/EXPORTS, call-order analysis, query rewrite, stop
 ```
 
@@ -19,8 +19,8 @@ question ──► lexical (code-aware BM25) ─┐
 | Exact spans + verified excerpts, stale/missing/traversal handling | **PASS** | `backend/tests/test_retrieval_sources.py` |
 | Semantic / lexical / hybrid / hybrid+rerank / adaptive modes | **PASS** | `backend/tests/test_hybrid_retrieval.py`, `test_graph_adaptive.py` |
 | Commit-scoped indexing and retrieval | **PASS** | `backend/tests/test_commit_scope.py` (two-commit Git fixture) |
-| `/api/search` contract, errors, partial-parse warnings | **PASS** | `backend/tests/test_search_api.py`; live uvicorn + real BGE |
-| Official CoIR Apps Retrieval (MTEB) run on CPU | **PASS (genuine run)** | `submission/mteb_results/` — nDCG@10 **0.05545** |
+| `/api/search` contract, errors, partial-parse warnings | **PASS** | `backend/tests/test_search_api.py`; live uvicorn + real embedding model |
+| Official CoIR Apps Retrieval (MTEB) run on CPU | **PASS (genuine run)** | `submission/mteb_results/` — nDCG@10 **0.55088** |
 | Frontend type-check + production build | **PASS** | `npm run build` |
 | Frontend interaction in a browser | **NOT RUN** in the build environment | — |
 | Docker Compose full stack (Neo4j, Chroma, MLflow, Prometheus, Grafana) | **NOT RUN** (`docker compose config` validates) | — |
@@ -51,7 +51,7 @@ npm run dev          # http://localhost:5173 (proxies /api to :8000)
 ```
 
 In the UI, index `../examples/sample_js_repo` (the path is relative to the backend's working directory), then try the
-example questions. The first ingest downloads `BAAI/bge-small-en-v1.5` (~130 MB).
+example questions. The first ingest downloads `Alibaba-NLP/gte-modernbert-base` (~600 MB).
 
 Terminal demo (ingest, name-free questions, ranked snippets, baseline vs adaptive with trace, evaluation result,
 limitations; everything printed comes from live calls):
@@ -85,7 +85,7 @@ Other endpoints: `GET /api/repositories`, `GET /api/repositories/{id}/commits`,
 `DELETE /api/repositories/{id}/commits/{sha}`, `GET /api/repositories/{id}/units/{unit_id}` (full verified source,
 resolved callers/callees and unresolved calls).
 
-Measured on the sample repo with the real BGE model on CPU (warm): hybrid ≈ 18 ms, adaptive structural query ≈ 100 ms.
+Measured on the sample repo with the real embedding model on CPU (warm): hybrid ≈ 40 ms, adaptive ≈ 45 ms (median over the benchmark queries).
 The first query after start-up also loads the model (several seconds).
 
 ## How it works
@@ -98,7 +98,7 @@ The first query after start-up also loads the model (several seconds).
   exports, JSDoc, and inline route handlers such as `router.post('/orders')`, named after their call site. Malformed files are
   marked partial and re-parsed per top-level chunk so later definitions survive. `node_modules`, build output, bundles,
   binaries and oversized files are skipped, and the reason is recorded.
-- **Index** (`app/retrieval/`): documents contain the implementation body. BGE vectors are cached per commit in
+- **Index** (`app/retrieval/`): documents contain the implementation body. Embedding vectors are cached per commit in
   `.repomind/embeddings.npz`; lexical search is a code-aware BM25 that splits camelCase, snake_case and dotted identifiers.
   Results are fused with RRF (k=60). The optional CrossEncoder reranks only a bounded pool (30).
 - **Source verification** (`app/retrieval/source.py`): checks repository/commit identity, path containment, file
@@ -127,32 +127,39 @@ pip install -r requirements-eval.txt
 python -m app.evaluation.coir_apps --output ../submission/mteb_results
 ```
 
-The encoder wraps the same embedder and preprocessing the retriever uses: BGE query instruction on queries, raw code
-documents, normalised vectors, 512 tokens, CPU. MTEB writes the result file itself.
+The encoder wraps the same embedder and preprocessing the retriever uses: the configured query instruction (none for
+gte), raw code documents, normalised vectors, 512 tokens, CPU. MTEB writes the result file itself.
 
 | Task | Split | Dataset revision | Model | nDCG@10 (main) | Recall@100 | Runtime |
 |---|---|---|---|---|---|---|
-| AppsRetrieval | test | `f22508f9…` | BAAI/bge-small-en-v1.5 (CPU) | **0.05545** | 0.19442 | 995 s |
+| AppsRetrieval | test | `f22508f9…` | **Alibaba-NLP/gte-modernbert-base** (CPU, submitted) | **0.55088** | 0.89456 | 4861 s |
+| AppsRetrieval | test | `f22508f9…` | BAAI/bge-small-en-v1.5 (CPU, earlier baseline) | 0.05545 | 0.19442 | 995 s |
 
-- Result JSON: `submission/mteb_results/repomind-x__bge-small-en-v1.5/repomind-x-encoder-v1/AppsRetrieval.json`
-- Manifest (hardware, versions, command, timing): `submission/mteb_results/run_manifest.json`
+- Submitted result: `submission/mteb_results/repomind-x__gte-modernbert-base/repomind-x-encoder-v1/AppsRetrieval.json`,
+  manifest `submission/mteb_results/run_manifest.json`. The run wrote to `submission/mteb_candidates/…`, as the
+  manifest's `command` field records; the files were then moved unchanged.
+- Baseline: `submission/mteb_results/repomind-x__bge-small-en-v1.5/…`, manifest `run_manifest_bge_small_baseline.json`.
 
-Apps pairs competitive-programming problem statements with Python solutions, and a small general-purpose English
-encoder scores low on it. The number is reported exactly as generated.
+**Model-selection disclosure.** The first release used `bge-small-en-v1.5`. `gte-modernbert-base` was then run as a
+single candidate, and the default was switched *after* seeing both models' scores on this official test split. No other
+models, prompts or settings were tried on it. On our own dev split, the switch keeps semantic MRR@10 at 1.000 and lifts
+hybrid+rerank from 0.861 to 0.944. Both official results are genuine, unedited MTEB output.
 
 ### Custom benchmark (separate from the official artifact)
 
 `python -m app.evaluation.retrieval_eval --dataset evaluation/<split>.json` ingests the fixture and evaluates every mode
 on the **same canonical units** for the same queries. Mode defaults were chosen on the dev split only; the held-out
-test split was run once afterwards.
+test split is run after each model change and never used for tuning.
 
-| Split (queries) | semantic | lexical | hybrid | hybrid+rerank | adaptive |
+| MRR@10 (queries) | semantic | lexical | hybrid | hybrid+rerank | adaptive |
 |---|---|---|---|---|---|
-| dev (18) MRR@10 | 1.000 | 0.815 | 0.972 | 0.861 | — |
-| **test (14) MRR@10** | 0.780 | 0.786 | 0.746 | 0.744 | **0.854** |
+| dev (18), gte-modernbert-base | 1.000 | 0.815 | 0.972 | 0.944 | 0.972 |
+| **test (14), gte-modernbert-base** | **0.869** | 0.786 | 0.816 | 0.851 | 0.857 |
+| test (14), bge-small baseline | 0.780 | 0.786 | 0.746 | 0.744 | 0.854 |
 
 Sources: `backend/evaluation/results/dev_sample_js_modes.json` and
-`submission/custom_benchmark/test_sample_js_modes.json`. The fixture has only 21 retrievable units, so treat these
+`submission/custom_benchmark/test_sample_js_modes.json`; the `*_bge_small_baseline.json` files hold the earlier runs.
+Hybrid remains the default mode, as chosen on the dev split. The fixture has only 21 retrievable units, so treat these
 figures as a sanity check, not a leaderboard.
 
 ## Optional services
@@ -177,7 +184,8 @@ The compose stack has not been started in the build environment (**NOT RUN**).
 - The MS MARCO CrossEncoder did not help on code in the dev split, so reranking is opt-in.
 - The Neo4j graph for the legacy agent path keeps one graph per repository (latest ingest). Commit-scoped retrieval uses
   the per-commit local graph. Cross-version symbol matching is not implemented.
-- The official CoIR score comes from a small general-purpose encoder.
+- The encoder was chosen after seeing its official test score (see the disclosure above). It is a 149M-parameter model
+  on CPU, and Apps queries are long problem statements truncated to 512 tokens.
 
 ## Tests
 

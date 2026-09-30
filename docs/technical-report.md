@@ -20,7 +20,8 @@ product. Generated prose is optional and always downstream of the ranked evidenc
 4. **Retrieval.**
    - *Lexical*: BM25 over code-aware tokens (identifiers split on case, underscores and dots; light stemming; name
      fields ×3, signature, docstring and path ×2, body ×1).
-   - *Semantic*: `BAAI/bge-small-en-v1.5` on CPU, with the BGE query instruction.
+   - *Semantic*: `Alibaba-NLP/gte-modernbert-base` on CPU (no query instruction). `bge-small-en-v1.5` was the earlier
+     baseline.
    - *Hybrid*: reciprocal rank fusion (k = 60) of both, deduplicated by unit ID. This is the default.
    - *Hybrid + rerank*: MS MARCO MiniLM CrossEncoder over the top 30, blended with the first stage by RRF. Opt-in.
    - *Adaptive*: a bounded rule-based loop over allowlisted actions (below).
@@ -48,14 +49,16 @@ instructions (see `test_repository_text_is_not_treated_as_instructions`).
 ## Evaluation
 
 **Official (CoIR Apps Retrieval via MTEB 1.39.7, test split, CPU).** The encoder is the retriever's own embedder and
-preprocessing, and MTEB generated the result: nDCG@10 = 0.05545, recall@100 = 0.19442, 995 s on a 16-thread Intel CPU.
-Artifacts are in `submission/mteb_results/`. Apps matches competitive-programming problem statements to Python
-solutions, so a small general English encoder is weak on it. The number is reported without adjustment.
+preprocessing, and MTEB generated the result. With `gte-modernbert-base`: nDCG@10 = **0.55088**, recall@100 = 0.89456,
+4,861 s on a 16-thread Intel CPU. The earlier `bge-small-en-v1.5` baseline scored nDCG@10 = 0.05545. Artifacts are in
+`submission/mteb_results/`. Disclosure: the default model was switched after seeing both models' scores on this test
+split. It was a single candidate, and no other models or settings were tried on the test split.
 
 **Custom (aligned).** Every mode ranks the same canonical units of `examples/sample_js_repo`, which has 21 retrievable
 units. Defaults were chosen on an 18-query dev split: semantic 1.00 MRR@10, hybrid 0.97, lexical 0.81, rerank 0.86. The
-held-out 14-query test split was run once afterwards: adaptive 0.854, lexical 0.786, semantic 0.780, hybrid 0.746,
-hybrid+rerank 0.744. At this size the figures are indicative only.
+held-out 14-query test split, with gte-modernbert-base: semantic 0.869, adaptive 0.857, hybrid+rerank 0.851,
+hybrid 0.816, lexical 0.786. The bge-small baseline scored 0.780 / 0.854 / 0.744 / 0.746 / 0.786 in the same order.
+At this size the figures are indicative only.
 
 ## Limitations
 

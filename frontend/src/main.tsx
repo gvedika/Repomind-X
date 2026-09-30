@@ -12,9 +12,9 @@ type UnitSource = { unit: { qualified_name: string; file_path: string; line_star
 type Answer = { answer: string; confidence: number; verification_notes: string[] };
 
 const MODES: Array<{ value: string; label: string; hint: string }> = [
-  { value: "hybrid", label: "Hybrid", hint: "BM25 + BGE fused with RRF (default baseline)" },
+  { value: "hybrid", label: "Hybrid", hint: "BM25 + dense embeddings fused with RRF (default)" },
   { value: "adaptive", label: "Adaptive", hint: "Bounded evidence-guided loop with graph expansion" },
-  { value: "semantic", label: "Semantic", hint: "BGE dense retrieval only" },
+  { value: "semantic", label: "Semantic", hint: "Dense embedding retrieval only" },
   { value: "lexical", label: "Lexical", hint: "Code-aware BM25 only" },
   { value: "hybrid_rerank", label: "Hybrid + rerank", hint: "Hybrid then CrossEncoder on a bounded pool (slower)" },
 ];

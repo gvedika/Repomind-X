@@ -6,20 +6,20 @@
     "revision": "f22508f96b7a36c2415181ed8bb76f76e04ae2d5"
   },
   "main_score_name": "ndcg_at_10",
-  "main_score": 0.55088,
-  "ndcg_at_10": 0.55088,
-  "result_file": "repomind-x__gte-modernbert-base\\repomind-x-encoder-v1\\AppsRetrieval.json",
+  "main_score": 0.05545,
+  "ndcg_at_10": 0.05545,
+  "result_file": "repomind-x__bge-small-en-v1.5\\repomind-x-encoder-v1\\AppsRetrieval.json",
   "encoder": {
-    "model": "Alibaba-NLP/gte-modernbert-base",
+    "model": "BAAI/bge-small-en-v1.5",
     "device": "cpu",
     "batch_size": 32,
     "max_seq_length": 512,
-    "query_instruction": "",
+    "query_instruction": "Represent this question for retrieving relevant code: ",
     "normalize_embeddings": true
   },
-  "command": "python.exe -m app.evaluation.coir_apps --model Alibaba-NLP/gte-modernbert-base --query-instruction  --output ../submission/mteb_candidates/gte-modernbert-base",
-  "started_at_utc": "2026-09-30T08:16:35.719335+00:00",
-  "elapsed_seconds": 4861.3,
+  "command": "python.exe -m app.evaluation.coir_apps --output ../submission/mteb_results",
+  "started_at_utc": "2026-09-30T07:49:19.749645+00:00",
+  "elapsed_seconds": 995.0,
   "hardware": {
     "platform": "Windows-11-10.0.26200-SP0",
     "processor": "Intel64 Family 6 Model 154 Stepping 3, GenuineIntel",

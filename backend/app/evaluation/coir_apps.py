@@ -21,7 +21,7 @@ SPLIT = "test"
 
 class RepoMindEncoder:
     """MTEB encoder interface over the same embedder/preprocessing used by RepoMind-X semantic retrieval:
-    queries get the BGE retrieval instruction, documents (code) are encoded as-is, vectors are L2-normalized."""
+    queries get the configured instruction (EMBEDDING_QUERY_INSTRUCTION; empty for gte), documents (code) are encoded as-is, vectors are L2-normalized."""
 
     def __init__(self, model_name: str, device: str = "cpu", batch_size: int = 32, max_seq_length: int = 512, query_instruction: str | None = None):
         from app.retrieval.embedding import SentenceTransformerEmbedder

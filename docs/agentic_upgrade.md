@@ -7,7 +7,7 @@
 - Repository ingestion copies local repositories into the configured sandbox and clones remote repositories with Git.
 - Python AST analysis extracts imports, functions, classes, call relationships, API route candidates, database entities, and framework components.
 - Production graph persistence is Neo4j through `GraphBackend`; the in-memory backend is retained only for isolated tests/explicit `GRAPH_BACKEND=memory`.
-- Semantic retrieval is persistent ChromaDB with BGE embeddings.
+- Semantic retrieval is persistent ChromaDB with the configured embedding model.
 - CrossEncoder reranking is part of the retrieval path and has a reproducible training/evaluation lifecycle.
 - Agents use a real MCP client boundary. The LangGraph workflow does not import MCP tool implementations.
 - MCP server tools expose structured results and are transported through the MCP Python SDK over stdio.
